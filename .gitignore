@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+schedule-upload-*.xlsx
+*.apkg
+.env
+Dockerfile
