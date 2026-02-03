@@ -111,6 +111,11 @@ nav[role="tablist"] button.active {
 }
 
 /* Year level colors matching QGenda */
+.type-badge.type-intern {
+  background: #FF9933;  /* Orange */
+  color: white;
+}
+
 .type-badge.type-ca1 {
   background: #7030A0;  /* Purple */
   color: white;
@@ -485,6 +490,7 @@ tr.ease-very-hard {
 }
 
 /* Year level badges in coverage candidates */
+.coverage-candidate .badge.type-intern { background: #FF9933; color: white; }
 .coverage-candidate .badge.type-ca1 { background: #7030A0; color: white; }
 .coverage-candidate .badge.type-ca2 { background: #0070C0; color: white; }
 .coverage-candidate .badge.type-ca3 { background: #8FAADC; color: #1a1a1a; }

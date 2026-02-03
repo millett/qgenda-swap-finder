@@ -68,7 +68,7 @@ function getPersonType(name) {
  */
 function isResident(name) {
     const type = getPersonType(name);
-    return type === 'ca1' || type === 'ca2' || type === 'ca3' || type === 'resident';
+    return type === 'intern' || type === 'ca1' || type === 'ca2' || type === 'ca3' || type === 'resident';
 }
 
 /**
@@ -78,6 +78,7 @@ function isResident(name) {
  */
 function getTypeLabel(type) {
     const labels = {
+        'intern': 'Intern',
         'ca1': 'CA-1',
         'ca2': 'CA-2',
         'ca3': 'CA-3',
@@ -97,6 +98,7 @@ function getTypeLabel(type) {
  */
 function getTypeClass(type) {
     const classes = {
+        'intern': 'type-intern',
         'ca1': 'type-ca1',
         'ca2': 'type-ca2',
         'ca3': 'type-ca3',

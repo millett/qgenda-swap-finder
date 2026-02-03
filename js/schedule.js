@@ -1,5 +1,5 @@
 // Generated from schedule.xlsx
-// Last updated: 2026-02-02 19:28:10
+// Last updated: 2026-02-02 19:31:26
 const SCHEDULE = [
   { date: "2026-01-26", name: "AHMED, MUHAMMAD", shift: "Faculty OR" },
   { date: "2026-01-26", name: "DEAN, CHAD", shift: "Faculty OB Day" },
@@ -11859,7 +11859,7 @@ const SCHEDULE = [
   { date: "2026-07-01", name: "CAIN, SHELBY", shift: "Faculty OR" },
 ];
 
-// Person types: ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)
+// Person types: intern, ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)
 const PERSON_TYPES_DATA = {
   "ABOUMERHI, HASSAN": "faculty",
   "AHMED, MUHAMMAD": "faculty",
@@ -11882,7 +11882,7 @@ const PERSON_TYPES_DATA = {
   "Bardoczi, Nicole": "crna",
   "Berken, Michael": "faculty",
   "Berry, Vince": "ca2",
-  "Bhatte, Sai": "resident",
+  "Bhatte, Sai": "intern",
   "Black, Beverly": "crna",
   "Boslet, Emma": "fellow",
   "CAIN, SHELBY": "faculty",
@@ -11903,7 +11903,7 @@ const PERSON_TYPES_DATA = {
   "Cooke, Louis": "ca3",
   "Corsello, Dominic": "fellow",
   "Curtis, Travis": "ca1",
-  "D'Cruze, Tiffany": "resident",
+  "D'Cruze, Tiffany": "intern",
   "DALTON, ALLISON": "faculty",
   "DAUBENSPECK, DANISA": "faculty",
   "DEAN, CHAD": "faculty",
@@ -11948,7 +11948,7 @@ const PERSON_TYPES_DATA = {
   "Hinkamp, Anne": "crna",
   "Holzer, David": "ca1",
   "Homa, Kimberly": "crna",
-  "Humes, Charles": "resident",
+  "Humes, Charles": "intern",
   "Huss, Leah": "crna",
   "Indrakrishnan, Harini": "ca1",
   "J Khan, Jennifer": "crna",
@@ -11964,7 +11964,7 @@ const PERSON_TYPES_DATA = {
   "Kherallah, Yaman": "faculty",
   "Kodali, Anita": "ca1",
   "Koenig, Adam": "ca1",
-  "Kolbow, Madison": "resident",
+  "Kolbow, Madison": "intern",
   "Koller, Elizabeth": "ca3",
   "Kondapalli, Karishma": "ca1",
   "Kriz, Elizabeth": "crna",
@@ -11974,8 +11974,8 @@ const PERSON_TYPES_DATA = {
   "LI, PULSAR": "faculty",
   "Laadimi, Karima": "crna",
   "Lankford, Christian": "ca1",
-  "Lanoue, Connor": "resident",
-  "Lashley, Sydney": "resident",
+  "Lanoue, Connor": "intern",
+  "Lashley, Sydney": "intern",
   "Lee, Joseph": "ca3",
   "Lee-Eng, Elizabeth": "crna",
   "Litwin, Lenore": "crna",
@@ -12014,7 +12014,7 @@ const PERSON_TYPES_DATA = {
   "PUSZYNSKI, MICHELLE": "faculty",
   "Paladugu, Sreelekha": "ca3",
   "Patel, Raj": "ca1",
-  "Phillips, Walker": "resident",
+  "Phillips, Walker": "intern",
   "Pohl, Colleen": "crna",
   "QADIR, RAZA": "faculty",
   "RAGHEB-MUELLER, NAWAL": "faculty",
@@ -12039,7 +12039,7 @@ const PERSON_TYPES_DATA = {
   "Shimi, Sawsan": "crna",
   "Sloane, Peter": "ca2",
   "Smith, Olivia": "ca2",
-  "Smith-Roberts, Terry": "resident",
+  "Smith-Roberts, Terry": "intern",
   "Sneed, Loni": "ca2",
   "Spencer, Joy Morgan": "ca1",
   "Stack, Michele": "crna",

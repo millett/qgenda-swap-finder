@@ -27,6 +27,10 @@ from openpyxl.styles import PatternFill
 #   CA3 (teal): 0099CCCC (Yeker)
 #   CRNA (light yellow-green): 00FFFF99 (Novelli) - NOTE: CRNAs can have CA shifts too!
 COLOR_TO_YEAR = {
+    # Intern = Orange
+    '00FF9933': 'intern',
+    'FFFF9933': 'intern',
+
     # CA1 = Purple
     '009933FF': 'ca1',
     'FF9933FF': 'ca1',
@@ -184,7 +188,7 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
     js_lines.append("")
 
     # Add person types mapping
-    js_lines.append("// Person types: ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)")
+    js_lines.append("// Person types: intern, ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)")
     js_lines.append("const PERSON_TYPES_DATA = {")
     for name, ptype in sorted(person_types.items()):
         escaped_name = name.replace('"', '\\"')
