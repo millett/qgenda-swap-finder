@@ -503,10 +503,19 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
   const endCheck = addDays(mySat > mySun ? mySat : mySun, lookForwardWeeks * 7);
 
   let current = startCheck;
+  const tomorrow = addDays(new Date(), 1);
+  tomorrow.setHours(0, 0, 0, 0);
+
   while (current <= endCheck) {
     // Find Saturday
     const saturday = findNextSaturday(current);
     const sunday = addDays(saturday, 1);
+
+    // Skip past weekends - can't swap for something already happened
+    if (saturday < tomorrow) {
+      current = addDays(current, 7);
+      continue;
+    }
 
     // Skip if this is my weekend
     if (isSameDay(saturday, mySat)) {
@@ -1140,7 +1149,7 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
       if (goodSamaritanSet.has(person)) continue;
 
       // Find their upcoming shifts that I could take in exchange
-      let current = today;
+      let current = addDays(today, 1);  // Start from TOMORROW, not today
       while (current <= endDate) {
         const theirShifts = getShiftsOnDate(caSchedule, person, current);
 
