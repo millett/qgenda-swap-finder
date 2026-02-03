@@ -75,6 +75,65 @@ python convert-schedule.py schedule.xlsx
 # Outputs js/schedule.js with SCHEDULE and PERSON_TYPES_DATA
 ```
 
+## Swap Ease Scoring Logic
+
+Located in `calculateSwapEase()` (swap-finder.js:283-340). Matrix based on what you offer vs ask for:
+
+| You Have | They Have | Ease | Rationale |
+|----------|-----------|------|-----------|
+| Any | Vacation | Very Hard | Asking them to give up PTO |
+| Same | Same | Easy | Equal trade |
+| Night | Day | Easy if they prefer nights | They want what you have |
+| Night | Day | Hard sell otherwise | Asking for an upgrade |
+| Day | Night | Easy (unless they prefer nights) | Offering an upgrade |
+| Night | Off | Moderate if they prefer nights | They might want it |
+| Night | Off | Hard sell otherwise | Asking them to work |
+| Off | Night | Easy (unless they prefer nights) | Taking their undesirable shift |
+| Day | Off | Moderate | Asking for work, but only day |
+| Off | Day | Easy | Taking their shift |
+
+**Key nuance**: The "prefers nights" flag from Friends List flips ease for night-related swaps.
+
+## Excel Color Extraction Gotchas
+
+Known issues in `convert-schedule.py`:
+
+1. **Cyan is shared**: `0000FFFF` used for both CA2s AND attendings - can't use color alone
+2. **CRNAs can have CA shifts**: Must check CRNA colors (`00FFFF99`) even if `has_ca` is true
+3. **Color format variations**: ARGB with/without alpha. Both `00FF9933` and `FFFF9933` = orange (intern)
+4. **Unknown colors → "resident"**: If color doesn't match, defaults to `resident`. Script prints unknowns at end
+5. **Cell-specific extraction**: Color grabbed from first row where person appears
+
+**Verified color mappings:**
+- Intern: Orange `00FF9933`
+- CA1: Purple `009933FF`
+- CA2: Cyan `0000FFFF`
+- CA3: Teal `0099CCCC`
+- CRNA: Yellow-green `00FFFF99`
+
+## Shift Categories
+
+Defined in swap-finder.js. Current sets:
+
+**NIGHT_CALL_SHIFTS**: CLI Night Call, Senior Night Call, GOR1/GOR2 Night Call, Trauma Night Call, OB Night Call, PEDS Night Call, Liver Night Call
+
+**CALL_SHIFTS**: All night calls + CLI Day Call
+
+**DAY_SHIFTS**: GOR, GOR-Block, AMB, OB Day, PEDS, Pre-Op, Neuro, Liver, IR, CV, Thoracic, Uro, Trauma, GYN, ENT, Ortho, Spine, Vascular, Pain, Endoscopy, Dental, Plastics
+
+**ICU_SHIFTS**: CTICU, SICU, ICU Call
+
+**UNAVAILABLE_SHIFTS**: Vacation, Vacation Week, Sick, Conference, Post Call, Off, Holiday
+
+**Potential gaps**: No CA Admin, CA Research, CA Education, CA Didactics shifts (if those exist)
+
+**Edge case**: Code uses `.has()` for exact matches. A shift like "CA GOR (Modified)" won't match "CA GOR".
+
+To audit existing shifts:
+```bash
+grep -o '"shift": "[^"]*"' js/schedule.js | sort | uniq -c | sort -rn
+```
+
 ## Common Issues
 
 - **CRNAs not showing**: Check `findCoverageCandidates()` includes CRNA shifts
