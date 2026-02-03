@@ -113,10 +113,9 @@ function getTypeClass(type) {
 /**
  * Get all unique resident names from the schedule (only actual residents by default)
  * @param {boolean} includeCRNA - Include CRNAs in the list
- * @param {boolean} includeFaculty - Include faculty/attendings in the list
  * @returns {Array} Sorted array of names
  */
-function getAllResidentNames(includeCRNA = false, includeFaculty = false) {
+function getAllResidentNames(includeCRNA = false) {
     const names = new Set();
     SCHEDULE.forEach(shift => {
         if (!shift.name) return;
@@ -124,8 +123,6 @@ function getAllResidentNames(includeCRNA = false, includeFaculty = false) {
         if (isResident(shift.name)) {
             names.add(shift.name);
         } else if (ptype === 'crna' && includeCRNA) {
-            names.add(shift.name);
-        } else if (ptype === 'faculty' && includeFaculty) {
             names.add(shift.name);
         } else if (ptype === 'fellow') {
             names.add(shift.name);  // Always include fellows
@@ -140,8 +137,7 @@ function getAllResidentNames(includeCRNA = false, includeFaculty = false) {
 function populateUserSelector() {
     const select = document.getElementById('my-name-select');
     const showCRNA = document.getElementById('selector-show-crna').checked;
-    const showFaculty = document.getElementById('selector-show-faculty').checked;
-    const allNames = getAllResidentNames(showCRNA, showFaculty);
+    const allNames = getAllResidentNames(showCRNA);
 
     // Remember current selection
     const currentValue = select.value || MY_NAME;
@@ -164,14 +160,12 @@ function populateUserSelector() {
 function initUserSelector() {
     const select = document.getElementById('my-name-select');
     const showCRNACheckbox = document.getElementById('selector-show-crna');
-    const showFacultyCheckbox = document.getElementById('selector-show-faculty');
 
     // Initial populate
     populateUserSelector();
 
     // Listen for checkbox changes to repopulate dropdown
     showCRNACheckbox.addEventListener('change', populateUserSelector);
-    showFacultyCheckbox.addEventListener('change', populateUserSelector);
 
     select.addEventListener('change', (e) => {
         MY_NAME = e.target.value;
@@ -197,6 +191,9 @@ function refreshCurrentTab() {
             populateWeekendDropdown();
             document.getElementById('weekend-results').innerHTML = '';
             document.getElementById('my-weekend-info').innerHTML = '';
+            break;
+        case 'trip-planner':
+            syncRotationOverridesUI();
             break;
         case 'golden-weekends':
             document.getElementById('golden-results').innerHTML = '';
@@ -237,6 +234,49 @@ function getUserKey(base) {
     // Create a storage key specific to the current user
     const safeUserName = MY_NAME.replace(/[^a-zA-Z0-9]/g, '_');
     return `${base}_${safeUserName}`;
+}
+
+function getHiddenCandidates(key) {
+    const data = localStorage.getItem(getUserKey(key));
+    if (!data) return new Set();
+    try {
+        const parsed = JSON.parse(data);
+        return new Set(parsed);
+    } catch {
+        return new Set();
+    }
+}
+
+function saveHiddenCandidates(key, set) {
+    localStorage.setItem(getUserKey(key), JSON.stringify([...set]));
+}
+
+function toggleHiddenCandidate(featureKey, name, hide) {
+    const key = featureKey === 'weekend' ? 'qgenda_hidden_weekend' : 'qgenda_hidden_trip';
+    const hidden = getHiddenCandidates(key);
+    if (hide) {
+        hidden.add(name);
+    } else {
+        hidden.delete(name);
+    }
+    saveHiddenCandidates(key, hidden);
+
+    if (featureKey === 'weekend' && window.lastWeekendSearch) {
+        const p = window.lastWeekendSearch;
+        renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.showFaculty);
+    } else if (featureKey === 'trip') {
+        const startDate = document.getElementById('trip-start').value;
+        const endDate = document.getElementById('trip-end').value;
+        if (startDate && endDate) {
+            renderTripPlanner(
+                startDate,
+                endDate,
+                document.getElementById('trip-depart-evening').checked,
+                document.getElementById('trip-friends-only').checked,
+                document.getElementById('trip-show-crna').checked
+            );
+        }
+    }
 }
 
 function getFriends() {
@@ -312,6 +352,10 @@ function switchTab(tabId) {
 
     // Save to localStorage
     localStorage.setItem('qgenda_active_tab', tabId);
+
+    if (tabId === 'trip-planner') {
+        syncRotationOverridesUI();
+    }
 }
 
 // Helper Functions
@@ -319,14 +363,17 @@ function getAllResidents() {
     const names = new Set();
     SCHEDULE.forEach(shift => {
         if (shift.name && shift.name !== MY_NAME) {
-            names.add(shift.name);
+            const ptype = getPersonType(shift.name);
+            if (ptype !== 'faculty') {
+                names.add(shift.name);
+            }
         }
     });
     // Sort: residents first, then CRNAs, then others, alphabetically within each group
     return Array.from(names).sort((a, b) => {
         const typeA = getPersonType(a);
         const typeB = getPersonType(b);
-        const order = { 'resident': 0, 'crna': 1, 'faculty': 2, 'unknown': 3 };
+        const order = { 'resident': 0, 'crna': 1, 'unknown': 2 };
         const orderA = order[typeA] ?? 3;
         const orderB = order[typeB] ?? 3;
         if (orderA !== orderB) return orderA - orderB;
@@ -337,6 +384,15 @@ function getAllResidents() {
 function filterByFriends(candidates) {
     const friends = getFriends();
     return candidates.filter(c => friends.friends.includes(c.name));
+}
+
+function formatLastName(name) {
+    if (!name) return '';
+    if (name.includes(', ')) {
+        return name.split(', ')[0];
+    }
+    const parts = name.trim().split(' ');
+    return parts.length > 1 ? parts[parts.length - 1] : name;
 }
 
 function renderTable(containerId, columns, data) {
@@ -382,6 +438,284 @@ function hideLoading(containerId) {
     }
 }
 
+// Data quality: identify CA shifts not mapped to any category
+function getUnknownCaShiftCounts() {
+    const known = new Set([
+        ...CALL_SHIFTS,
+        ...DAY_SHIFTS,
+        ...ICU_SHIFTS,
+        ...UNAVAILABLE_SHIFTS,
+    ]);
+
+    const counts = {};
+    SCHEDULE.forEach(s => {
+        if (!s.shift || !s.shift.startsWith('CA ')) return;
+        if (!known.has(s.shift)) {
+            counts[s.shift] = (counts[s.shift] || 0) + 1;
+        }
+    });
+    return counts;
+}
+
+function renderShiftAudit() {
+    const container = document.getElementById('shift-audit');
+    if (!container) return;
+
+    const counts = getUnknownCaShiftCounts();
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+
+    if (entries.length === 0) {
+        container.innerHTML = '<p class="success-message">✅ No unknown CA shift labels detected.</p>';
+        return;
+    }
+
+    const list = entries.map(([shift, count]) =>
+        `<li><strong>${shift}</strong> <span class="muted">(${count})</span></li>`
+    ).join('');
+
+    container.innerHTML = `
+        <div class="data-warning-banner">
+            <strong>⚠️ Unmapped CA shifts found</strong>
+            <p>Add these to the correct category in <code>js/swap-finder.js</code> and update <code>SWAP_RULES.md</code>.</p>
+            <ul class="shift-audit-list">${list}</ul>
+        </div>
+    `;
+}
+
+// Rotation completion overrides (CA1/CA2)
+function inferRotationCompletion(name) {
+    const caSchedule = SCHEDULE.filter(s => s.shift && s.shift.startsWith('CA ') && s.name === name);
+
+    let obDone = false;
+    let cardiacDone = false;
+
+    for (const shift of caSchedule) {
+        if (shift.shift === 'CA CLI Night Call') {
+            const day = getWeekday(parseDate(shift.date));
+            if (day === 0 || day === 6) {
+                obDone = true;
+            }
+        }
+        if (shift.shift === 'CA GOR4') {
+            cardiacDone = true;
+        }
+        if (obDone && cardiacDone) break;
+    }
+
+    return {
+        ob_done: obDone,
+        cardiac_done: cardiacDone,
+        peds_done: false,
+        pain_done: false
+    };
+}
+
+function getRotationOverrides() {
+    const key = getUserKey('qgenda_rotation_overrides');
+    const inferred = inferRotationCompletion(MY_NAME);
+    const stored = localStorage.getItem(key);
+
+    if (!stored) {
+        localStorage.setItem(key, JSON.stringify(inferred));
+        return inferred;
+    }
+
+    try {
+        const parsed = JSON.parse(stored);
+        return {
+            ob_done: parsed.ob_done ?? inferred.ob_done,
+            cardiac_done: parsed.cardiac_done ?? inferred.cardiac_done,
+            peds_done: parsed.peds_done ?? inferred.peds_done,
+            pain_done: parsed.pain_done ?? inferred.pain_done,
+        };
+    } catch {
+        localStorage.setItem(key, JSON.stringify(inferred));
+        return inferred;
+    }
+}
+
+function saveRotationOverrides(data) {
+    localStorage.setItem(getUserKey('qgenda_rotation_overrides'), JSON.stringify(data));
+}
+
+function syncRotationOverridesUI() {
+    const container = document.getElementById('rotation-overrides');
+    const fields = document.getElementById('rotation-overrides-fields');
+    const note = document.getElementById('rotation-overrides-note');
+    if (!container || !fields || !note) return;
+
+    const personType = getPersonType(MY_NAME);
+    if (personType === 'ca3' || personType === 'fellow') {
+        container.style.display = 'block';
+        fields.style.display = 'none';
+        note.textContent = 'CA3+ are eligible for vacation during all rotations.';
+        return;
+    }
+
+    container.style.display = 'block';
+    fields.style.display = 'grid';
+
+    const overrides = getRotationOverrides();
+    const inferred = inferRotationCompletion(MY_NAME);
+
+    const obBox = document.getElementById('rot-ob-done');
+    const cardiacBox = document.getElementById('rot-cardiac-done');
+    const pedsBox = document.getElementById('rot-peds-done');
+    const painBox = document.getElementById('rot-pain-done');
+
+    if (obBox) obBox.checked = !!overrides.ob_done;
+    if (cardiacBox) cardiacBox.checked = !!overrides.cardiac_done;
+    if (pedsBox) pedsBox.checked = !!overrides.peds_done;
+    if (painBox) painBox.checked = !!overrides.pain_done;
+
+    const hints = [];
+    if (inferred.ob_done) hints.push('OB auto-detected (weekend CLI night call)');
+    if (inferred.cardiac_done) hints.push('Cardiac auto-detected (GOR4)');
+    const legend = 'Legend: OB via weekend CLI night call; Cardiac via GOR4.';
+    note.textContent = hints.length > 0 ? `${hints.join(' • ')} • ${legend}` : `${legend} Auto-detected where possible.`;
+}
+
+function bindRotationOverrideHandlers() {
+    const obBox = document.getElementById('rot-ob-done');
+    const cardiacBox = document.getElementById('rot-cardiac-done');
+    const pedsBox = document.getElementById('rot-peds-done');
+    const painBox = document.getElementById('rot-pain-done');
+
+    const handler = () => {
+        const overrides = getRotationOverrides();
+        overrides.ob_done = obBox ? obBox.checked : overrides.ob_done;
+        overrides.cardiac_done = cardiacBox ? cardiacBox.checked : overrides.cardiac_done;
+        overrides.peds_done = pedsBox ? pedsBox.checked : overrides.peds_done;
+        overrides.pain_done = painBox ? painBox.checked : overrides.pain_done;
+        saveRotationOverrides(overrides);
+
+        const startDate = document.getElementById('trip-start').value;
+        const endDate = document.getElementById('trip-end').value;
+        if (startDate && endDate) {
+            renderTripPlanner(
+                startDate,
+                endDate,
+                document.getElementById('trip-depart-evening').checked,
+                document.getElementById('trip-friends-only').checked,
+                document.getElementById('trip-show-crna').checked
+            );
+        }
+    };
+
+    [obBox, cardiacBox, pedsBox, painBox].forEach(box => {
+        if (box) box.addEventListener('change', handler);
+    });
+}
+
+function getEffectiveVacationIneligibleShifts(myName, overrides) {
+    const personType = getPersonType(myName);
+    if (personType === 'ca3' || personType === 'fellow') {
+        return new Set();
+    }
+
+    const ineligible = new Set(VACATION_INELIGIBLE_SHIFTS);
+    const removeGroup = (group) => group.forEach(s => ineligible.delete(s));
+
+    if (overrides?.ob_done) {
+        removeGroup(new Set(['CA OB', 'CA OB3']));
+    }
+    if (overrides?.cardiac_done) {
+        removeGroup(new Set(['CA CV Cardiac', 'CA CV-3']));
+    }
+    if (overrides?.peds_done) {
+        removeGroup(new Set(['CA PEDS', 'CA Peds ACT']));
+    }
+    if (overrides?.pain_done) {
+        removeGroup(new Set(['CA Pain Clinic', 'CA Pain Clinic 3']));
+    }
+
+    return ineligible;
+}
+
+// Vacation eligibility helpers (ineligible rotations)
+function getVacationIneligibleDates(schedule, myName, startDate, endDate, ineligibleSet) {
+    const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA ') && s.name === myName);
+    const start = parseDate(startDate);
+    const end = parseDate(endDate);
+    const results = [];
+
+    let current = new Date(start);
+    while (current <= end) {
+        const shiftsOnDay = getShiftsOnDate(caSchedule, myName, current);
+        const ineligible = shiftsOnDay.filter(s => ineligibleSet.has(s.shift));
+        if (ineligible.length > 0) {
+            results.push({
+                date: formatDate(current),
+                shifts: ineligible.map(s => s.shift)
+            });
+        }
+        current = addDays(current, 1);
+    }
+
+    return results;
+}
+
+function renderVacationEligibility(startDate, endDate, dataWarning) {
+    const container = document.getElementById('trip-eligibility');
+    if (!container) return;
+
+    const personType = getPersonType(MY_NAME);
+    const overrides = getRotationOverrides();
+    const ineligibleSet = getEffectiveVacationIneligibleShifts(MY_NAME, overrides);
+
+    if (personType === 'ca3' || personType === 'fellow') {
+        container.innerHTML = `
+            <div class="success-message">
+                ✅ CA3+ are eligible for vacation during all rotations (no ineligible blocks enforced).
+            </div>
+        `;
+        return;
+    }
+
+    const ineligibleDates = getVacationIneligibleDates(SCHEDULE, MY_NAME, startDate, endDate, ineligibleSet);
+
+    if (ineligibleDates.length === 0) {
+        const overridesActive = [];
+        if (overrides.ob_done) overridesActive.push('OB');
+        if (overrides.cardiac_done) overridesActive.push('Cardiac');
+        if (overrides.peds_done) overridesActive.push('Peds');
+        if (overrides.pain_done) overridesActive.push('Pain');
+
+        const caveat = dataWarning
+            ? '<p class="muted">⚠️ Schedule data does not fully cover this date range, so eligibility may be incomplete.</p>'
+            : '';
+        const overrideNote = overridesActive.length > 0
+            ? `<p class="muted">Overrides applied: ${overridesActive.join(', ')}</p>`
+            : '';
+        container.innerHTML = `
+            <div class="success-message">
+                ✅ Vacation-eligible based on current schedule data.
+                ${overrideNote}
+                ${caveat}
+            </div>
+        `;
+        return;
+    }
+
+    const rows = ineligibleDates.map(entry => {
+        const dateDisplay = formatDateDisplay(parseDate(entry.date));
+        const shiftList = entry.shifts.map(s => s.replace('CA ', '')).join(', ');
+        return `<li><strong>${dateDisplay}</strong> — ${shiftList}</li>`;
+    }).join('');
+
+    const caveat = dataWarning
+        ? '<p class="muted">⚠️ Schedule data does not fully cover this date range, so other ineligible days may not be shown.</p>'
+        : '';
+
+    container.innerHTML = `
+        <div class="data-warning-banner">
+            <strong>🚫 Vacation-ineligible rotation during selected dates</strong>
+            <ul class="shift-audit-list">${rows}</ul>
+            ${caveat}
+        </div>
+    `;
+}
+
 // Tab 1: My Schedule
 function initMyScheduleTab() {
     const daysSlider = document.getElementById('schedule-days');
@@ -420,11 +754,15 @@ function renderMySchedule(daysAhead) {
         const icon = shift.shift_type === 'call' ? '🌙' :
                      shift.shift_type === 'off' ? '🏖️' : '☀️';
         const dateStr = formatDateDisplay(shift.date);
+        const tags = (shift.tags && shift.tags.length > 0)
+            ? `<span class="shift-tags">${shift.tags.join(', ')}</span>`
+            : '<span class="muted">-</span>';
         return `
             <tr>
                 <td>${icon} ${dateStr}</td>
                 <td>${shift.shift_type}</td>
                 <td>${shift.shift}</td>
+                <td>${tags}</td>
             </tr>
         `;
     }).join('');
@@ -436,9 +774,10 @@ function renderMySchedule(daysAhead) {
                     <th>Date</th>
                     <th>Type</th>
                     <th>Shift</th>
+                    <th>Notes</th>
                 </tr>
             </thead>
-            <tbody>${shiftsHtml || '<tr><td colspan="3">No upcoming shifts</td></tr>'}</tbody>
+            <tbody>${shiftsHtml || '<tr><td colspan="4">No upcoming shifts</td></tr>'}</tbody>
         </table>
     `;
 
@@ -467,13 +806,12 @@ function initGoldenWeekendsTab() {
     searchBtn.addEventListener('click', () => {
         const weeks = parseInt(weeksSlider.value);
         const showAvailable = document.getElementById('golden-show-available').checked;
-        const friendsOnly = document.getElementById('golden-friends-only').checked;
 
-        renderGoldenWeekends(weeks, showAvailable, friendsOnly);
+        renderGoldenWeekends(weeks, showAvailable);
     });
 }
 
-function renderGoldenWeekends(weeksAhead, showAvailable, friendsOnly) {
+function renderGoldenWeekends(weeksAhead, showAvailable) {
     showLoading('golden-results');
 
     const weekends = findGoldenWeekends(SCHEDULE, MY_NAME, weeksAhead);
@@ -493,9 +831,6 @@ function renderGoldenWeekends(weeksAhead, showAvailable, friendsOnly) {
     const html = myGoldenWeekends.map((weekend, idx) => {
         // Determine who to show as available
         let availablePeople = weekend.all_residents_off || [];
-        if (friendsOnly) {
-            availablePeople = availablePeople.filter(name => friendsSet.has(name));
-        }
 
         const friendsAvailable = availablePeople.filter(name => friendsSet.has(name));
         const othersAvailable = availablePeople.filter(name => !friendsSet.has(name));
@@ -506,10 +841,12 @@ function renderGoldenWeekends(weeksAhead, showAvailable, friendsOnly) {
         let availableHtml = '';
         if (showAvailable) {
             if (friendsAvailable.length > 0) {
-                availableHtml += `<p><strong>Friends off:</strong> ${friendsAvailable.join(', ')}</p>`;
+                const friendsLabel = friendsAvailable.map(formatLastName).join(', ');
+                availableHtml += `<p><strong>Friends off:</strong> ${friendsLabel}</p>`;
             }
-            if (!friendsOnly && othersAvailable.length > 0) {
-                availableHtml += `<p><small>Others off: ${othersAvailable.slice(0, 10).join(', ')}${othersAvailable.length > 10 ? '...' : ''}</small></p>`;
+            if (othersAvailable.length > 0) {
+                const othersLabel = othersAvailable.slice(0, 10).map(formatLastName).join(', ');
+                availableHtml += `<p><small>Others off: ${othersLabel}${othersAvailable.length > 10 ? '...' : ''}</small></p>`;
             }
             if (availablePeople.length === 0) {
                 availableHtml = '<p class="muted">No one else is off this weekend</p>';
@@ -535,6 +872,30 @@ function renderGoldenWeekends(weeksAhead, showAvailable, friendsOnly) {
 
 // Tab 3: Trip Planner
 function initTripPlannerTab() {
+    const tripStartInput = document.getElementById('trip-start');
+    const tripEndInput = document.getElementById('trip-end');
+
+    // Default trip start to the next upcoming weekend (Saturday)
+    if (tripStartInput && !tripStartInput.value) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const nextSat = findNextSaturday(today);
+        tripStartInput.value = formatDate(nextSat);
+        const defaultEnd = addDays(nextSat, 2);
+        if (tripEndInput) {
+            tripEndInput.value = formatDate(defaultEnd);
+        }
+    }
+
+    // Auto-set trip end to 2 days after trip start
+    if (tripStartInput && tripEndInput) {
+        tripStartInput.addEventListener('change', () => {
+            if (!tripStartInput.value) return;
+            const start = parseDate(tripStartInput.value);
+            tripEndInput.value = formatDate(addDays(start, 2));
+        });
+    }
+
     document.getElementById('btn-trip-search').addEventListener('click', () => {
         const startDate = document.getElementById('trip-start').value;
         const endDate = document.getElementById('trip-end').value;
@@ -549,6 +910,41 @@ function initTripPlannerTab() {
 
         renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA);
     });
+
+    const tripShowHidden = document.getElementById('trip-show-hidden');
+    if (tripShowHidden) {
+        tripShowHidden.addEventListener('change', () => {
+            const startDate = document.getElementById('trip-start').value;
+            const endDate = document.getElementById('trip-end').value;
+            if (startDate && endDate) {
+                renderTripPlanner(
+                    startDate,
+                    endDate,
+                    document.getElementById('trip-depart-evening').checked,
+                    document.getElementById('trip-friends-only').checked,
+                    document.getElementById('trip-show-crna').checked
+                );
+            }
+        });
+    }
+
+    const tripResetHidden = document.getElementById('trip-reset-hidden');
+    if (tripResetHidden) {
+        tripResetHidden.addEventListener('click', () => {
+            saveHiddenCandidates('qgenda_hidden_trip', new Set());
+            const startDate = document.getElementById('trip-start').value;
+            const endDate = document.getElementById('trip-end').value;
+            if (startDate && endDate) {
+                renderTripPlanner(
+                    startDate,
+                    endDate,
+                    document.getElementById('trip-depart-evening').checked,
+                    document.getElementById('trip-friends-only').checked,
+                    document.getElementById('trip-show-crna').checked
+                );
+            }
+        });
+    }
 }
 
 /**
@@ -592,7 +988,13 @@ function findCoverageCandidates(schedule, myName, dates) {
             const dayBeforeShifts = getShiftsOnDate(schedule, resident, dayBefore);
             const hasNightCallDayBefore = dayBeforeShifts.some(s => NIGHT_CALL_SHIFTS.has(s.shift));
 
-            if (isFree && !hasNightCallDayBefore) {
+            // Check if they are eligible to cover my shift on that date
+            const myShiftsOnDate = getShiftsOnDate(schedule, myName, dateObj);
+            const POST_CALL_SHIFTS = new Set(['CA Post Call', 'CA Home Post Call']);
+            const myBlockingShift = myShiftsOnDate.find(s => !POST_CALL_SHIFTS.has(s.shift));
+            const canCover = myBlockingShift ? canCoverShift(resident, myBlockingShift.shift) : true;
+
+            if (isFree && !hasNightCallDayBefore && canCover) {
                 freeDates.push(dateStr);
             }
         }
@@ -638,6 +1040,9 @@ function findCoverageCandidates(schedule, myName, dates) {
 function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA) {
     showLoading('trip-shifts');
 
+    const showHidden = document.getElementById('trip-show-hidden')?.checked || false;
+    const hiddenSet = getHiddenCandidates('qgenda_hidden_trip');
+
     const result = findTripCoverage(SCHEDULE, MY_NAME, startDate, endDate, departEvening);
 
     // Show data warning prominently if schedule doesn't cover the requested dates
@@ -653,6 +1058,11 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             </div>
         `;
     }
+
+    syncRotationOverridesUI();
+
+    // Render vacation eligibility banner (uses rotation-ineligible shifts)
+    renderVacationEligibility(startDate, endDate, result.data_warning);
 
     // Only show shifts that actually block travel (need coverage)
     const blockingOnly = result.blocking_shifts.filter(s => s.blocks_travel);
@@ -793,6 +1203,9 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             if (friendsOnly) {
                 filteredSwaps = filteredSwaps.filter(s => s.isFriend);
             }
+            if (!showHidden) {
+                filteredSwaps = filteredSwaps.filter(s => !hiddenSet.has(s.candidate));
+            }
             filteredSwaps = filteredSwaps.filter(s => {
                 const ptype = getPersonType(s.candidate);
                 if (ptype === 'intern') return false;  // Interns can't cover call
@@ -816,9 +1229,13 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                     const blockedDateDisplay = formatDateDisplay(parseDate(swap.blockedDate));
                     const theirDateDisplay = formatDateDisplay(parseDate(swap.theirDate));
                     const hiddenClass = index >= initialLimit ? 'swap-card-hidden' : '';
+                    const isHidden = hiddenSet.has(swap.candidate);
+                    const hiddenStyle = isHidden ? 'hidden-candidate' : '';
+                    const hiddenBtnLabel = isHidden ? 'Unhide' : 'Hide';
+                    const escapedName = swap.candidate.replace(/'/g, "\\'");
 
                     swapsHtml += `
-                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass}">
+                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass} ${hiddenStyle}">
                             <div class="swap-header">
                                 <span class="candidate-name">
                                     ${swap.candidate}
@@ -838,6 +1255,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                                     <span class="swap-shift">${blockedDateDisplay} - ${swap.myShift.replace('CA ', '')}</span>
                                 </div>
                             </div>
+                            <button class="secondary hide-candidate-btn" onclick="toggleHiddenCandidate('trip', '${escapedName}', ${!isHidden})">${hiddenBtnLabel}</button>
                         </div>
                     `;
                 });
@@ -932,7 +1350,6 @@ function initWeekendSwapTab() {
         const weeksToSearch = parseInt(weeksSlider.value);
         const friendsOnly = document.getElementById('weekend-friends-only').checked;
         const showCRNA = document.getElementById('weekend-show-crna').checked;
-        const showFaculty = document.getElementById('weekend-show-faculty').checked;
 
         if (selectedIdx === '' || !window.myWorkingWeekends || !window.myWorkingWeekends[selectedIdx]) {
             alert('Please select a weekend');
@@ -940,21 +1357,55 @@ function initWeekendSwapTab() {
         }
 
         const weekend = window.myWorkingWeekends[selectedIdx];
-        renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFaculty);
+        renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA);
     });
+
+    const weekendShowHidden = document.getElementById('weekend-show-hidden');
+    if (weekendShowHidden) {
+        weekendShowHidden.addEventListener('change', () => {
+            if (window.lastWeekendSearch) {
+                const p = window.lastWeekendSearch;
+                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA);
+            }
+        });
+    }
+
+    const weekendResetHidden = document.getElementById('weekend-reset-hidden');
+    if (weekendResetHidden) {
+        weekendResetHidden.addEventListener('click', () => {
+            saveHiddenCandidates('qgenda_hidden_weekend', new Set());
+            if (window.lastWeekendSearch) {
+                const p = window.lastWeekendSearch;
+                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA);
+            }
+        });
+    }
 }
 
-function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFaculty) {
+function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
     showLoading('weekend-results');
 
     const satDate = weekend.saturday;
     const sunDate = weekend.sunday;
+    const myWeekendShiftSet = new Set([weekend.satShift, weekend.sunShift].filter(s => s && s !== 'OFF'));
+
+    if (setsIntersect(myWeekendShiftSet, ICU_SHIFTS)) {
+        document.getElementById('weekend-results').innerHTML =
+            '<p class="warning-message">⚠️ ICU weekend assignments (e.g., CTICU/SICU/ICU Call) are not eligible for weekend swaps.</p>';
+        hideLoading('weekend-results');
+        return;
+    }
+
     let swaps = findWeekendSwap(SCHEDULE, MY_NAME, [satDate, sunDate], weeksToSearch, weeksToSearch);
+
+    const showHidden = document.getElementById('weekend-show-hidden')?.checked || false;
+    const hiddenSet = getHiddenCandidates('qgenda_hidden_weekend');
 
     // Store for message generation
     window.currentWeekendSwaps = swaps;
     window.myWeekend = weekend;
     window.myWeekendStr = `${formatDateDisplay(satDate)} - ${formatDateDisplay(sunDate)}`;
+    window.lastWeekendSearch = { weekend, weeksToSearch, friendsOnly, showCRNA };
 
     // Show my weekend info
     const myTypeIcon = weekend.type === 'night' ? '🌙' : weekend.type === 'day' ? '☀️' : '📅';
@@ -969,34 +1420,40 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFa
         swaps = swaps.filter(swap => getFriends().friends.includes(swap.candidate));
     }
 
-    // Filter by person type (show residents by default, optionally CRNAs/faculty)
+    // Filter by person type (show residents by default, optionally CRNAs)
     swaps = swaps.filter(swap => {
         const ptype = getPersonType(swap.candidate);
         if (isResident(swap.candidate) && getPersonType(swap.candidate) !== 'intern') return true;  // Show residents except interns
         if (ptype === 'crna' && showCRNA) return true;
-        if (ptype === 'faculty' && showFaculty) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
     });
 
-    // Sort: Easy swaps first, then residents before CRNAs, then friends
-    const easeOrder = { 'Easy': 0, 'Moderate': 1, 'Hard sell': 2, 'Very hard': 3 };
+    if (!showHidden) {
+        swaps = swaps.filter(swap => !hiddenSet.has(swap.candidate));
+    }
+
+    // Sort: easiest first, then full weekend off, then friends, then benefit
+    const easeOrder = { 'easy': 0, 'moderate': 1, 'hard sell': 2, 'very hard': 3 };
     const friendsData = getFriends();
     swaps.sort((a, b) => {
-        // Ease level first
-        const easeA = easeOrder[a.ease] || 1;
-        const easeB = easeOrder[b.ease] || 1;
+        const easeA = easeOrder[(a.ease || '').trim().toLowerCase()] ?? 99;
+        const easeB = easeOrder[(b.ease || '').trim().toLowerCase()] ?? 99;
         if (easeA !== easeB) return easeA - easeB;
 
-        // Residents before CRNAs
-        const resA = isResident(a.candidate) ? 0 : 1;
-        const resB = isResident(b.candidate) ? 0 : 1;
-        if (resA !== resB) return resA - resB;
+        const aTheirType = (a.their_weekend_type || (a.swap_type.split('↔')[1] || '')).toLowerCase();
+        const bTheirType = (b.their_weekend_type || (b.swap_type.split('↔')[1] || '')).toLowerCase();
+        const aOff = aTheirType === 'off' ? 0 : 1;
+        const bOff = bTheirType === 'off' ? 0 : 1;
+        if (aOff !== bOff) return aOff - bOff;
 
-        // Friends first
         const friendA = friendsData.friends.includes(a.candidate) ? 0 : 1;
         const friendB = friendsData.friends.includes(b.candidate) ? 0 : 1;
-        return friendA - friendB;
+        if (friendA !== friendB) return friendA - friendB;
+
+        const benefitA = typeof a.benefit === 'number' ? a.benefit : 0;
+        const benefitB = typeof b.benefit === 'number' ? b.benefit : 0;
+        return benefitB - benefitA;
     });
 
     // Update the stored swaps with new order
@@ -1042,9 +1499,43 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFa
         const typeClass = getTypeClass(personType);
         const isCRNA = personType === 'crna';
         const isFriend = friendsData.friends.includes(swap.candidate);
+        const isHidden = hiddenSet.has(swap.candidate);
+        const hiddenStyle = isHidden ? 'hidden-candidate' : '';
+        const hiddenBtnLabel = isHidden ? 'Unhide' : 'Hide';
+        const escapedName = swap.candidate.replace(/'/g, "\\'");
+
+        const yourWeekendLines = [];
+        if (weekend.satShift !== 'OFF') {
+            yourWeekendLines.push(
+                `<div class="swap-line"><span class="shift ${mySatClass}">${mySatIcon} ${weekend.satShift}</span><span class="swap-date">On ${formatDateDisplay(weekend.saturday).split(' ')[1]}</span></div>`
+            );
+        }
+        if (weekend.sunShift !== 'OFF') {
+            yourWeekendLines.push(
+                `<div class="swap-line"><span class="shift ${mySunClass}">${mySunIcon} ${weekend.sunShift}</span><span class="swap-date">On ${formatDateDisplay(weekend.sunday).split(' ')[1]}</span></div>`
+            );
+        }
+        const yourWeekendBody = yourWeekendLines.length
+            ? yourWeekendLines.join('')
+            : '<div class="swap-line muted">No shifts (already off)</div>';
+
+        const theirWeekendLines = [];
+        if (swap.their_sat_shift !== 'OFF') {
+            theirWeekendLines.push(
+                `<div class="swap-line"><span class="shift ${theirSatClass}">${theirSatIcon} ${swap.their_sat_shift}</span><span class="swap-date">On ${formatDateDisplay(swap.saturday).split(' ')[1]}</span></div>`
+            );
+        }
+        if (swap.their_sun_shift !== 'OFF') {
+            theirWeekendLines.push(
+                `<div class="swap-line"><span class="shift ${theirSunClass}">${theirSunIcon} ${swap.their_sun_shift}</span><span class="swap-date">On ${formatDateDisplay(swap.sunday).split(' ')[1]}</span></div>`
+            );
+        }
+        const theirWeekendBody = theirWeekendLines.length
+            ? theirWeekendLines.join('')
+            : '<div class="swap-line muted">No shifts (already off)</div>';
 
         return `
-            <div class="swap-card ${easeClass} ${isCRNA ? 'is-crna' : ''}">
+            <div class="swap-card ${easeClass} ${isCRNA ? 'is-crna' : ''} ${hiddenStyle}">
                 <div class="swap-header">
                     <span class="candidate-name">
                         ${swap.candidate}
@@ -1054,24 +1545,23 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFa
                     <span class="ease-badge ${easeBadgeClass}">${easeEmoji} ${swap.ease}</span>
                 </div>
                 <div class="swap-details">
-                    <div class="their-weekend">
-                        <strong>Their Weekend:</strong> ${swap.their_weekend}
-                    </div>
-                    <div class="shift-comparison">
-                        <div class="your-shifts">
-                            <span class="label">You give:</span>
-                            <span class="shift ${mySatClass}">${mySatIcon} ${weekend.satShift}</span>
-                            <span class="shift ${mySunClass}">${mySunIcon} ${weekend.sunShift}</span>
+                    <div class="swap-sides">
+                        <div class="swap-side">
+                            <div class="swap-side-title">You get off (they cover) <span class="swap-date">${window.myWeekendStr}</span></div>
+                            <div class="swap-side-body">
+                                ${yourWeekendBody}
+                            </div>
                         </div>
-                        <div class="arrow">⇄</div>
-                        <div class="their-shifts">
-                            <span class="label">You get:</span>
-                            <span class="shift ${theirSatClass}">${theirSatIcon} ${swap.their_sat_shift}</span>
-                            <span class="shift ${theirSunClass}">${theirSunIcon} ${swap.their_sun_shift}</span>
+                        <div class="swap-side">
+                            <div class="swap-side-title">They get off (you cover) <span class="swap-date">${swap.their_weekend}</span></div>
+                            <div class="swap-side-body">
+                                ${theirWeekendBody}
+                            </div>
                         </div>
                     </div>
                 </div>
-                <button class="select-btn" onclick="selectSwapCandidate(${idx})">Generate Message</button>
+                <button class="select-btn" onclick="selectSwapCandidate(${idx})" ${isHidden ? 'disabled' : ''}>Generate Message</button>
+                <button class="secondary hide-candidate-btn" onclick="toggleHiddenCandidate('weekend', '${escapedName}', ${!isHidden})">${hiddenBtnLabel}</button>
             </div>
         `;
     }).join('');
@@ -1109,31 +1599,33 @@ window.selectSwapCandidate = function(idx) {
 
 // generateSwapMessage is provided by swap-finder.js
 
-// Tab 5: Who's Free
+// Tab 5: Assignments
 function initWhosFreeTab() {
     document.getElementById('btn-free-check').addEventListener('click', () => {
         const date = document.getElementById('free-date').value;
         const friendsOnly = document.getElementById('free-friends-only').checked;
         const showCRNA = document.getElementById('free-show-crna').checked;
-        const showFaculty = document.getElementById('free-show-faculty').checked;
 
         if (!date) {
             alert('Please select a date');
             return;
         }
 
-        renderWhosFree(date, friendsOnly, showCRNA, showFaculty);
+        renderWhosFree(date, friendsOnly, showCRNA);
     });
 }
 
-function renderWhosFree(date, friendsOnly, showCRNA, showFaculty) {
+function renderWhosFree(date, friendsOnly, showCRNA) {
     showLoading('free-results');
 
     // Get all shifts on this date that make someone unavailable
     const busyShifts = SCHEDULE.filter(s => {
         if (s.date !== date) return false;
-        // Check if it's a call or unavailable shift
-        return CALL_SHIFTS.has(s.shift) || UNAVAILABLE_SHIFTS.has(s.shift);
+        // Call, day, ICU, or unavailable shifts mean they're not free
+        return CALL_SHIFTS.has(s.shift) ||
+               DAY_SHIFTS.has(s.shift) ||
+               ICU_SHIFTS.has(s.shift) ||
+               UNAVAILABLE_SHIFTS.has(s.shift);
     });
     const busyNames = new Set(busyShifts.map(s => s.name));
 
@@ -1148,7 +1640,6 @@ function renderWhosFree(date, friendsOnly, showCRNA, showFaculty) {
         const ptype = getPersonType(name);
         if (isResident(name)) return true;  // Always show residents
         if (ptype === 'crna' && showCRNA) return true;
-        if (ptype === 'faculty' && showFaculty) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
     });
@@ -1164,7 +1655,7 @@ function renderWhosFree(date, friendsOnly, showCRNA, showFaculty) {
                 : 'OFF';
             return `<div class="free-resident"><strong>${name}</strong>: ${shifts}</div>`;
         }).join('')
-        : '<p class="no-data">No one is free on this date</p>';
+        : '<p class="no-data">No available residents found on this date</p>';
 
     document.getElementById('free-results').innerHTML = html;
     hideLoading('free-results');
@@ -1353,6 +1844,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initMyScheduleTab();
     initGoldenWeekendsTab();
     initTripPlannerTab();
+    bindRotationOverrideHandlers();
+    syncRotationOverridesUI();
     initWeekendSwapTab();
     initWhosFreeTab();
     initFriendsTab();
@@ -1362,6 +1855,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const dateRange = getScheduleDateRange();
     document.getElementById('schedule-info').textContent =
         `${SCHEDULE.length} shifts from ${dateRange.start} to ${dateRange.end}`;
+
+    // Data quality: show any unmapped CA shifts
+    renderShiftAudit();
 });
 
 /**

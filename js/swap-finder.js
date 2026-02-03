@@ -26,6 +26,9 @@ const CALL_SHIFTS = new Set([
   'CA GOR1 Night Call',
   'CA GOR2 Night Call',
   'CA CART Night Call',
+  'CA GOR1 Day Call',
+  'CA GOR2 Day Call',
+  'CA CART Day Call',
   'CA CV Call',
   'CA COMER Call',
   'CA ICU Call',
@@ -50,10 +53,35 @@ const SENIOR_ONLY_SHIFTS = new Set([
   'CA Peds ACT',
 ]);
 
+// Shifts CA1s cannot cover
+const CA1_RESTRICTED_SHIFTS = new Set([
+  'CA Northshore',
+  'CA Northshore Neuro',
+  'CA Northshore Call',
+]);
+
 // Vacation shifts - asymmetric handling (hard for them to give up, but I can offer to work)
 const VACATION_SHIFTS = new Set([
   'CA Vacation',
   'CA Vacation Week',
+]);
+
+// Rotation blocks that are vacation-ineligible (per program rules)
+const VACATION_INELIGIBLE_SHIFTS = new Set([
+  'CA Vascular Thoracic',
+  'CA CTICU',
+  'CA SICU',
+  'CA OB',
+  'CA OB3',
+  'CA PEDS',
+  'CA Peds ACT',
+  'CA Pain Clinic',
+  'CA Pain Clinic 3',
+  'CA CV Cardiac',
+  'CA CV-3',
+  'CA APMC',
+  'CA APMC 3',
+  'CA PACU',
 ]);
 
 const DAY_SHIFTS = new Set([
@@ -126,6 +154,11 @@ function canCoverShift(personName, shift) {
   if (SENIOR_ONLY_SHIFTS.has(shift)) {
     const seniorTypes = new Set(['ca3', 'fellow']);
     return seniorTypes.has(personType);
+  }
+
+  // CA1s cannot cover Northshore assignments
+  if (personType === 'ca1' && CA1_RESTRICTED_SHIFTS.has(shift)) {
+    return false;
   }
 
   return true;
@@ -318,6 +351,36 @@ function classifyWeekendType(satShifts, sunShifts) {
     return 'day';
   }
   return 'off';
+}
+
+/**
+ * Estimate how burdensome a weekend is based on shift types.
+ * Higher is worse. Used for sorting weekend swaps more intuitively.
+ * @param {Set} weekendShifts
+ * @returns {number}
+ */
+function getWeekendBurden(weekendShifts) {
+  let burden = 0;
+  for (const shift of weekendShifts) {
+    if (!shift || shift === 'OFF') continue;
+    if (ICU_SHIFTS.has(shift)) {
+      burden += 4;
+      continue;
+    }
+    if (NIGHT_CALL_SHIFTS.has(shift)) {
+      burden += 3;
+      continue;
+    }
+    if (CALL_SHIFTS.has(shift)) {
+      burden += 2;
+      continue;
+    }
+    if (DAY_SHIFTS.has(shift)) {
+      burden += 1;
+      continue;
+    }
+  }
+  return burden;
 }
 
 /**
@@ -692,17 +755,15 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
         }
 
         // Check seniority eligibility for the swap
-        // Can I cover their senior-only shifts?
-        const theyHaveSeniorShifts = [...theirWeekendShifts].filter(s => SENIOR_ONLY_SHIFTS.has(s));
-        const iCanCoverTheirs = theyHaveSeniorShifts.every(s => canCoverShift(myName, s));
+        // Can I cover their shifts?
+        const iCanCoverTheirs = [...theirWeekendShifts].every(s => canCoverShift(myName, s));
         if (!iCanCoverTheirs) {
           continue;
         }
 
-        // Can they cover my senior-only shifts?
+        // Can they cover my shifts?
         const myWeekendShiftSet = new Set([...mySatShiftSet, ...mySunShiftSet]);
-        const iHaveSeniorShifts = [...myWeekendShiftSet].filter(s => SENIOR_ONLY_SHIFTS.has(s));
-        const theyCanCoverMine = iHaveSeniorShifts.every(s => canCoverShift(resident, s));
+        const theyCanCoverMine = [...myWeekendShiftSet].every(s => canCoverShift(resident, s));
         if (!theyCanCoverMine) {
           continue;
         }
@@ -716,6 +777,9 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
           resident,
           theirWeekendShifts
         );
+        const myWeekendShifts = new Set([...mySatShiftSet, ...mySunShiftSet]);
+        const myBurden = getWeekendBurden(myWeekendShifts);
+        const theirBurden = getWeekendBurden(theirWeekendShifts);
 
         candidates.push({
           candidate: resident,
@@ -723,6 +787,11 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
           their_sat_shift: satShifts.size > 0 ? [...satShifts].join(', ') : 'OFF',
           their_sun_shift: sunShifts.size > 0 ? [...sunShifts].join(', ') : 'OFF',
           swap_type: swapType,
+          their_weekend_type: theirWeekendType,
+          my_weekend_type: myWeekendType,
+          my_burden: myBurden,
+          their_burden: theirBurden,
+          benefit: myBurden - theirBurden,
           ease: ease,
           available_your_weekend: availableMyWeekend,
           saturday: saturday,
@@ -1028,6 +1097,12 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
   today.setHours(0, 0, 0, 0);
   const endDate = addDays(today, daysAhead);
 
+  // Pre-calculate call-adjacent dates for pre/post-call notes
+  const myCallShifts = caSchedule.filter(s => s.name === myName && CALL_SHIFTS.has(s.shift));
+  const callDates = new Set(myCallShifts.map(s => s.date));
+  const preCallDates = new Set([...callDates].map(d => formatDate(addDays(parseDate(d), -1))));
+  const postCallDates = new Set([...callDates].map(d => formatDate(addDays(parseDate(d), 1))));
+
   // Get my shifts in range
   const myShifts = [];
   let current = today;
@@ -1035,11 +1110,16 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
     const shiftsOnDay = getShiftsOnDate(caSchedule, myName, current);
     shiftsOnDay.forEach(s => {
       const dateObj = parseDate(s.date);
+      const dateKey = formatDate(dateObj);
+      const tags = [];
+      if (preCallDates.has(dateKey)) tags.push('Pre-call');
+      if (postCallDates.has(dateKey)) tags.push('Post-call');
       myShifts.push({
         date: dateObj,
         shift: s.shift,
         shift_type: classifyShift(s.shift),
-        days_until: Math.floor((dateObj - today) / (1000 * 60 * 60 * 24))
+        days_until: Math.floor((dateObj - today) / (1000 * 60 * 60 * 24)),
+        tags: tags
       });
     });
     current = addDays(current, 1);
@@ -1400,9 +1480,11 @@ window.SwapFinder = {
   CALL_SHIFTS,
   ICU_SHIFTS,
   VACATION_SHIFTS,
+  VACATION_INELIGIBLE_SHIFTS,
   DAY_SHIFTS,
   UNAVAILABLE_SHIFTS,
   SENIOR_ONLY_SHIFTS,
+  CA1_RESTRICTED_SHIFTS,
 
   // Eligibility helpers
   canCoverShift,
@@ -1420,6 +1502,7 @@ window.SwapFinder = {
   // Core functions
   hasPostCallConflict,
   classifyWeekendType,
+  getWeekendBurden,
   calculateSwapEase,
   findSwapCandidates,
   findWeekendSwap,

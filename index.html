@@ -31,7 +31,6 @@
           </select>
         </label>
         <label class="selector-toggle"><input type="checkbox" id="selector-show-crna"> Show CRNAs</label>
-        <label class="selector-toggle"><input type="checkbox" id="selector-show-faculty"> Show Attendings</label>
       </div>
     </header>
 
@@ -40,10 +39,10 @@
       <ul role="tablist">
         <li><button role="tab" data-tab="my-schedule" class="active">My Schedule</button></li>
         <li><button role="tab" data-tab="golden-weekends">Golden Weekends</button></li>
-        <li><button role="tab" data-tab="trip-planner">Trip Planner</button></li>
         <li><button role="tab" data-tab="weekend-swap">Weekend Swap</button></li>
-        <li><button role="tab" data-tab="whos-free">Who's Free</button></li>
+        <li><button role="tab" data-tab="whos-free">Assignments</button></li>
         <li><button role="tab" data-tab="friends-list">Friends</button></li>
+        <li><button role="tab" data-tab="trip-planner">Trip Planner <span class="beta-badge">Beta</span></button></li>
         <!-- Ledger tab hidden for now - uncomment to re-enable
         <li><button role="tab" data-tab="swap-ledger">Ledger</button></li>
         -->
@@ -91,6 +90,10 @@
       <!-- Weekly Breakdown -->
       <h3>Weekly Breakdown</h3>
       <div id="weekly-breakdown"></div>
+
+      <!-- Data Quality -->
+      <h3>Data Quality</h3>
+      <div id="shift-audit"></div>
     </section>
 
     <!-- Golden Weekends Tab -->
@@ -105,7 +108,6 @@
       </div>
       <div class="grid">
         <label><input type="checkbox" id="golden-show-available"> Show who's also off</label>
-        <label><input type="checkbox" id="golden-friends-only"> Highlight friends only</label>
       </div>
       <button id="btn-golden-search">Find My Golden Weekends</button>
 
@@ -126,8 +128,23 @@
         <label><input type="checkbox" id="trip-friends-only"> Friends only</label>
         <label><input type="checkbox" id="trip-show-crna"> Show CRNAs in results</label>
       </div>
+      <div class="grid">
+        <label><input type="checkbox" id="trip-show-hidden"> Show hidden candidates</label>
+        <button id="trip-reset-hidden" class="secondary">Reset hidden list</button>
+      </div>
+      <div class="rotation-overrides" id="rotation-overrides">
+        <strong>Rotation History (CA1/CA2 only)</strong>
+        <div class="grid rotation-overrides-fields" id="rotation-overrides-fields">
+          <label><input type="checkbox" id="rot-ob-done"> OB month completed</label>
+          <label><input type="checkbox" id="rot-cardiac-done"> Cardiac month completed</label>
+          <label><input type="checkbox" id="rot-peds-done"> Peds month 1 completed</label>
+          <label><input type="checkbox" id="rot-pain-done"> Pain month 1 completed</label>
+        </div>
+        <div class="muted rotation-overrides-note" id="rotation-overrides-note">Auto-detected where possible.</div>
+      </div>
       <button id="btn-trip-search">Find Coverage <span class="beta-badge">Beta</span></button>
 
+      <div id="trip-eligibility"></div>
       <div id="trip-shifts"></div>
       <div id="trip-packages"></div>
       <div id="trip-candidates"></div>
@@ -152,7 +169,10 @@
       <div class="grid">
         <label><input type="checkbox" id="weekend-friends-only"> Friends only</label>
         <label><input type="checkbox" id="weekend-show-crna"> Show CRNAs</label>
-        <label><input type="checkbox" id="weekend-show-faculty"> Show Attendings</label>
+      </div>
+      <div class="grid">
+        <label><input type="checkbox" id="weekend-show-hidden"> Show hidden candidates</label>
+        <button id="weekend-reset-hidden" class="secondary">Reset hidden list</button>
       </div>
       <button id="btn-weekend-search">Find Weekend Swaps</button>
 
@@ -163,10 +183,10 @@
       <textarea id="swap-message" rows="4" placeholder="Click 'Generate Message' on a swap card above..."></textarea>
     </section>
 
-    <!-- Who's Free Tab -->
+    <!-- Assignments Tab -->
     <section id="whos-free" class="tab-content">
-      <h2>Who's Free</h2>
-      <p>See who is available on a specific date.</p>
+      <h2>Assignments</h2>
+      <p>See assignments for residents who are not on call/day/ICU for a specific date.</p>
 
       <div class="grid">
         <label>Date: <input type="date" id="free-date"></label>
@@ -174,9 +194,8 @@
       <div class="grid">
         <label><input type="checkbox" id="free-friends-only"> Friends only</label>
         <label><input type="checkbox" id="free-show-crna"> Show CRNAs</label>
-        <label><input type="checkbox" id="free-show-faculty"> Show Attendings</label>
       </div>
-      <button id="btn-free-check">Check Availability</button>
+      <button id="btn-free-check">Show Assignments</button>
 
       <div id="free-results"></div>
     </section>
