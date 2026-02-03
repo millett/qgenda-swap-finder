@@ -600,3 +600,79 @@ table th {
     gap: 0.5rem;
   }
 }
+
+/* ============================================
+   Dark Mode Overrides
+   ============================================ */
+
+[data-theme="dark"] .ease-badge.easy {
+  background: rgba(40, 167, 69, 0.3);
+  color: #8fd19e;
+}
+
+[data-theme="dark"] .ease-badge.moderate {
+  background: rgba(255, 193, 7, 0.25);
+  color: #ffe69c;
+}
+
+[data-theme="dark"] .ease-badge.hard {
+  background: rgba(220, 53, 69, 0.3);
+  color: #f5a6ad;
+}
+
+[data-theme="dark"] tr.ease-easy {
+  background-color: rgba(40, 167, 69, 0.15);
+}
+
+[data-theme="dark"] tr.ease-moderate {
+  background-color: rgba(255, 193, 7, 0.15);
+}
+
+[data-theme="dark"] tr.ease-hard {
+  background-color: rgba(220, 53, 69, 0.15);
+}
+
+[data-theme="dark"] tr.ease-very-hard {
+  background-color: rgba(220, 53, 69, 0.4);
+}
+
+[data-theme="dark"] .success-message {
+  background: rgba(40, 167, 69, 0.2);
+  color: #8fd19e;
+}
+
+[data-theme="dark"] .warning-message {
+  color: #ffe69c;
+}
+
+[data-theme="dark"] .blocking-shift.blocks {
+  background: rgba(220, 53, 69, 0.2);
+}
+
+[data-theme="dark"] .blocking-shift.ok {
+  background: rgba(40, 167, 69, 0.2);
+}
+
+[data-theme="dark"] .golden-card {
+  background: linear-gradient(90deg, rgba(40,167,69,0.15) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .swap-card.ease-easy {
+  background: linear-gradient(90deg, rgba(40,167,69,0.2) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .swap-card.ease-moderate {
+  background: linear-gradient(90deg, rgba(255,193,7,0.15) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .swap-card.ease-hard {
+  background: linear-gradient(90deg, rgba(220,53,69,0.2) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .swap-card.ease-very-hard {
+  background: linear-gradient(90deg, rgba(108,117,125,0.3) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .coverage-candidate.is-friend {
+  background: linear-gradient(90deg, rgba(40,167,69,0.15) 0%, transparent 100%);
+}
