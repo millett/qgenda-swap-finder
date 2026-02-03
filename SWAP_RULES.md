@@ -122,6 +122,7 @@ Includes everything in Night Call Shifts, plus:
 - **Post-call days** - not real shifts, just markers
 
 ### Seniority Requirements
+- **Interns** - Cannot cover ANY call shifts
 - **CA Senior Night Call** - Only CA3+ can cover
 - The app checks both directions:
   - Can YOU cover THEIR shift? (e.g., CA2 can't take Senior Night Call)

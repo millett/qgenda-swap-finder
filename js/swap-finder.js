@@ -110,17 +110,21 @@ const UNAVAILABLE_SHIFTS = new Set([
  * @returns {boolean} True if eligible to cover the shift
  */
 function canCoverShift(personName, shift) {
-  // If not a senior-only shift, anyone can cover
-  if (!SENIOR_ONLY_SHIFTS.has(shift)) {
-    return true;
-  }
-
   // Get person type from schedule.js data
   const personType = (typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown';
 
+  // Interns cannot cover ANY call shifts
+  if (personType === 'intern' && CALL_SHIFTS.has(shift)) {
+    return false;
+  }
+
   // Senior-only shifts require CA3+ or fellow
-  const seniorTypes = new Set(['ca3', 'fellow']);
-  return seniorTypes.has(personType);
+  if (SENIOR_ONLY_SHIFTS.has(shift)) {
+    const seniorTypes = new Set(['ca3', 'fellow']);
+    return seniorTypes.has(personType);
+  }
+
+  return true;
 }
 
 /**
