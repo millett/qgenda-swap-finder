@@ -2,6 +2,10 @@
  * Minimal styling to complement Pico CSS
  */
 
+.muted {
+  color: var(--pico-muted-color);
+}
+
 /* ============================================
    User Selector
    ============================================ */
@@ -45,6 +49,7 @@
   margin: 0;
   width: auto;
 }
+
 
 /* ============================================
    Beta Badge
@@ -244,6 +249,50 @@ nav[role="tablist"] button.active {
   margin: 1rem 0;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.swap-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+  margin-top: 0.5rem;
+}
+
+.swap-side {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="dark"] .swap-side {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.swap-side-title {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.swap-date {
+  font-weight: normal;
+  color: var(--pico-muted-color);
+  margin-left: 0.25rem;
+}
+
+.swap-side-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.swap-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .your-shifts,
@@ -473,6 +522,24 @@ tr.ease-very-hard {
   color: #155724;
 }
 
+.shift-tags {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  background: rgba(0, 123, 255, 0.1);
+  color: #0b4e8a;
+}
+
+.shift-audit-list {
+  margin: 0.5rem 0 0 1.25rem;
+}
+
+[data-theme="dark"] .shift-tags {
+  background: rgba(0, 123, 255, 0.25);
+  color: #cfe3ff;
+}
+
 .warning-message {
   padding: 0.5rem 0;
   color: #856404;
@@ -498,6 +565,33 @@ tr.ease-very-hard {
 .data-warning-banner p {
   margin: 0.25rem 0;
   font-size: 0.95rem;
+}
+
+.rotation-overrides {
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--pico-muted-border-color);
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  background: var(--pico-card-background-color);
+}
+
+.rotation-overrides .rotation-overrides-fields {
+  margin-top: 0.5rem;
+}
+
+.rotation-overrides .rotation-overrides-note {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.hidden-candidate {
+  opacity: 0.55;
+  filter: grayscale(0.2);
+}
+
+.hide-candidate-btn {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
 }
 
 [data-theme="dark"] .data-warning-banner {

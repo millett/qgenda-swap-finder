@@ -27,6 +27,9 @@ Includes everything in Night Call Shifts, plus:
 | Shift Name | Notes |
 |------------|-------|
 | CA CLI Day Call | Daytime call (doesn't block next day) |
+| CA GOR1 Day Call | GOR day call (normalized from "GOR 1 Day Call") |
+| CA GOR2 Day Call | GOR day call (normalized from "GOR 2 Day Call") |
+| CA CART Day Call | CART day call (normalized from "Cart Day Call") |
 | CA Jeopardy | Backup call (can be called in) |
 | CA CV Call | Cardiac call (limited qualified pool) |
 | CA COMER Call | Comer hospital call |
@@ -92,6 +95,9 @@ Includes everything in Night Call Shifts, plus:
 
 > **Important**: CA1 and CA2 residents cannot cover these shifts. The app filters them out based on PERSON_TYPES_DATA.
 
+### Additional Eligibility Rules
+- **CA1s cannot cover Northshore assignments** (CA Northshore, CA Northshore Neuro, CA Northshore Call)
+
 ### Vacation/Unavailable Shifts
 **Time off, excused absences, and status markers.**
 
@@ -107,6 +113,32 @@ Includes everything in Night Call Shifts, plus:
 | CA Meeting | Meeting/administrative |
 | CA half-day/meeting | Half day for meeting |
 | CA ACLS | Off day |
+
+---
+
+## Vacation-Ineligible Rotations (Planning Only)
+These shifts should be treated as **vacation-ineligible** when planning trips or lottery requests.
+
+| Shift Name | Notes |
+|------------|-------|
+| CA Vascular Thoracic | Vascular/Thoracic |
+| CA CTICU | CTICU |
+| CA SICU | SICU |
+| CA OB | OB (first month) |
+| CA OB3 | OB rotation block |
+| CA PEDS | Peds (first month) |
+| CA Peds ACT | Peds ACT block |
+| CA Pain Clinic | Pain (first month) |
+| CA Pain Clinic 3 | Pain block |
+| CA CV Cardiac | Cardiac (first month) |
+| CA CV-3 | Cardiac block |
+| CA APMC | APMC block (vacation-ineligible) |
+| CA APMC 3 | APMC block |
+| CA PACU | PACU/Airway block (vacation-ineligible) |
+
+> **Note**: “First month only” rotations (OB, Peds, Pain, Cardiac) are enforced conservatively when the shift appears in the schedule.
+> **CA3+** residents are treated as eligible for vacation during these blocks in the app.
+> **CA1/CA2** residents can override OB/Cardiac/Peds/Pain completion via the Trip Planner toggles.
 
 ---
 

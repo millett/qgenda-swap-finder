@@ -50,6 +50,13 @@ CRNA_COLORS = {
     'FFFFFF99',
 }
 
+# Normalize QGenda shift labels that lack the "CA " prefix
+SHIFT_NORMALIZATION = {
+    'GOR 1 Day Call': 'CA GOR1 Day Call',
+    'GOR 2 Day Call': 'CA GOR2 Day Call',
+    'Cart Day Call': 'CA CART Day Call',
+}
+
 
 def get_cell_color(cell):
     """Extract the background color from a cell."""
@@ -130,6 +137,10 @@ def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
 
 def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Path, input_file: Path):
     """Convert DataFrame to JavaScript format and write to file."""
+    # Normalize known CA shifts that lack the "CA " prefix in QGenda exports
+    df = df.copy()
+    df['shift'] = df['shift'].apply(lambda s: SHIFT_NORMALIZATION.get(s, s) if isinstance(s, str) else s)
+
     # Include CA, CRNA, Faculty, and Fellow shifts for proper classification
     valid_prefixes = ('CA ', 'CRNA', 'Faculty', 'Fellow')
     filtered_shifts = df[df['shift'].str.startswith(valid_prefixes, na=False)].copy()
