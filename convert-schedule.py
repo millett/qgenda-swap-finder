@@ -16,93 +16,34 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
 
-# Color mapping for person types (approximate RGB values)
-# Colors can be in ARGB format (00RRGGBB or FFRRGGBB)
+# Color mapping for RESIDENT YEAR LEVEL ONLY
+# Colors are NOT reliable for determining if someone is a resident vs attending
+# (e.g., cyan 0000FFFF is used for both CA2s and attendings)
+# Use shift prefix to determine resident/faculty/crna, then use color for year level
+#
 # Verified mappings from user:
 #   CA1 (purple): 009933FF (Koenig)
-#   CA2 (cyan): 0000FFFF (Millett)
+#   CA2 (cyan): 0000FFFF (Millett) - NOTE: attendings also use this color!
 #   CA3 (teal): 0099CCCC (Yeker)
-#   CRNA (light yellow-green): 00FFFF99 (Novelli)
-COLOR_TO_TYPE = {
-    # CA1 = Purple (009933FF = violet/purple)
+#   CRNA (light yellow-green): 00FFFF99 (Novelli) - NOTE: CRNAs can have CA shifts too!
+COLOR_TO_YEAR = {
+    # CA1 = Purple
     '009933FF': 'ca1',
     'FF9933FF': 'ca1',
-    'FF800080': 'ca1',
-    '00800080': 'ca1',
-    'FF660066': 'ca1',
-    'FF993399': 'ca1',
-    'FFCC99FF': 'ca1',
-    'FF7030A0': 'ca1',
-    '007030A0': 'ca1',
 
-    # CA2 = Cyan/Turquoise (0000FFFF = cyan)
+    # CA2 = Cyan (but only for people with CA shifts!)
     '0000FFFF': 'ca2',
     'FF00FFFF': 'ca2',
-    '00CCFFFF': 'ca2',  # Light cyan - likely CA2
-    'FFCCFFFF': 'ca2',
-    'FF0000FF': 'ca2',
-    '000000FF': 'ca2',
-    'FF0066CC': 'ca2',
-    'FF0070C0': 'ca2',
-    '000070C0': 'ca2',
-    'FF00B0F0': 'ca2',
-    'FF4472C4': 'ca2',
-    '004472C4': 'ca2',
-    'FF5B9BD5': 'ca2',
-    '005B9BD5': 'ca2',
 
-    # CA3 = Teal/Grey-blue (0099CCCC = teal)
+    # CA3 = Teal
     '0099CCCC': 'ca3',
     'FF99CCCC': 'ca3',
-    'FF808080': 'ca3',
-    '00808080': 'ca3',
-    'FF8EA9DB': 'ca3',
-    '008EA9DB': 'ca3',
-    'FF9BC2E6': 'ca3',
-    'FFA6A6A6': 'ca3',
-    'FFB4C6E7': 'ca3',
-    '00B4C6E7': 'ca3',
-    'FF8FAADC': 'ca3',
-    '008FAADC': 'ca3',
+}
 
-    # Orange = Fellow
-    'FFFF6600': 'fellow',
-    '00FF6600': 'fellow',
-    'FFFF9900': 'fellow',
-    'FFFFC000': 'fellow',
-    '00FFC000': 'fellow',
-    'FFED7D31': 'fellow',
-    '00ED7D31': 'fellow',
-    'FFF4B084': 'fellow',
-
-    # CRNA = Light yellow-green (00FFFF99)
-    '00FFFF99': 'crna',
-    'FFFFFF99': 'crna',
-    'FFFFFF00': 'crna',
-    '00FFFF00': 'crna',
-    'FFFFCC00': 'crna',
-    'FFFFEB9C': 'crna',
-    'FFFFF2CC': 'crna',
-    '00FFF2CC': 'crna',
-    'FFFFD966': 'crna',
-    '00FFD966': 'crna',
-
-    # Red = announcement/other
-    'FFFF0000': 'other',
-    '00FF0000': 'other',
-
-    # Pink/Salmon = faculty
-    '00FFCCCC': 'faculty',
-    'FFFFCCCC': 'faculty',
-
-    # Light lavender/periwinkle = faculty (Awad, Patel, etc.)
-    '00CCCCFF': 'faculty',
-    'FFCCCCFF': 'faculty',
-    '0099FFFF': 'faculty',
-    'FF99FFFF': 'faculty',
-
-    # Light green = unknown, classify as other for now
-    '0099FF99': 'other',
+# CRNA colors - used to identify CRNAs even if they have CA shifts
+CRNA_COLORS = {
+    '00FFFF99',
+    'FFFFFF99',
 }
 
 
@@ -119,55 +60,12 @@ def get_cell_color(cell):
     return None
 
 
-def classify_by_color(color_rgb):
-    """Classify person type by cell color."""
+def get_year_level_from_color(color_rgb):
+    """Get resident year level (ca1/ca2/ca3) from cell color.
+    Returns None if color doesn't map to a known year level."""
     if not color_rgb:
         return None
-
-    # Direct match
-    if color_rgb in COLOR_TO_TYPE:
-        return COLOR_TO_TYPE[color_rgb]
-
-    # Try to match by color similarity (simplified)
-    try:
-        if len(color_rgb) >= 6:
-            # Extract RGB values (handle ARGB format - skip first 2 chars if 8 chars)
-            rgb = color_rgb
-            if len(rgb) == 8:
-                rgb = rgb[2:]  # Skip alpha
-
-            r = int(rgb[0:2], 16)
-            g = int(rgb[2:4], 16)
-            b = int(rgb[4:6], 16)
-
-            # Purple/Violet: medium-high red, low green, high blue
-            if 80 < r < 200 and g < 80 and b > 200:
-                return 'ca1'
-
-            # Blue: low red, any green, high blue
-            if r < 100 and b > 150:
-                return 'ca2'
-
-            # Grey-blue: medium everything with blue tint
-            if 100 < r < 200 and 130 < g < 220 and 180 < b < 240:
-                return 'ca3'
-
-            # Orange: high red, medium green, low blue
-            if r > 200 and 80 < g < 200 and b < 130:
-                return 'fellow'
-
-            # Yellow: high red, high green, low-medium blue
-            if r > 200 and g > 200 and b < 180:
-                return 'crna'
-
-            # Grey: similar R, G, B values
-            if abs(r - g) < 30 and abs(g - b) < 30 and abs(r - b) < 30:
-                if r > 150:  # Light grey
-                    return 'ca3'
-    except:
-        pass
-
-    return None
+    return COLOR_TO_YEAR.get(color_rgb)
 
 
 def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
@@ -235,34 +133,35 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
     # Sort by date
     filtered_shifts = filtered_shifts.sort_values('date')
 
-    # Classify people by color
+    # Classify people by SHIFT PREFIX first, then use color for year level
+    # This is because colors are shared between residents and attendings
     person_types = {}
-    unknown_colors = {}
-    for name, color in person_colors.items():
-        ptype = classify_by_color(color)
-        if ptype:
-            person_types[name] = ptype
-        else:
-            unknown_colors[name] = color
 
-    # Also classify by shift prefix as fallback
     for name in filtered_shifts['name'].unique():
-        if name in person_types:
-            continue
         person_shifts = filtered_shifts[filtered_shifts['name'] == name]['shift'].tolist()
         has_ca = any(s.startswith('CA ') for s in person_shifts)
         has_crna = any('CRNA' in s for s in person_shifts)
         has_faculty = any(s.startswith('Faculty') for s in person_shifts)
         has_fellow = any(s.startswith('Fellow') for s in person_shifts)
 
-        if has_crna and not has_ca:
-            person_types[name] = 'crna'
-        elif has_faculty:
+        color = person_colors.get(name)
+
+        if has_faculty:
             person_types[name] = 'faculty'
+        elif has_crna:
+            person_types[name] = 'crna'
+        elif color in CRNA_COLORS:
+            # CRNA color but has CA shifts - still a CRNA
+            person_types[name] = 'crna'
         elif has_fellow:
             person_types[name] = 'fellow'
         elif has_ca:
-            person_types[name] = 'resident'  # Unknown year level
+            # It's a resident - use color to determine year level
+            year_level = get_year_level_from_color(color)
+            if year_level:
+                person_types[name] = year_level
+            else:
+                person_types[name] = 'resident'  # Unknown year level
 
     # Generate timestamp
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -295,10 +194,12 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
     # Write to file
     output_path.write_text('\n'.join(js_lines))
 
-    # Print color analysis for debugging
-    if unknown_colors:
-        print(f"\nUnknown colors found ({len(unknown_colors)} people):")
-        for name, color in list(unknown_colors.items())[:10]:
+    # Print residents with unknown year level for debugging
+    unknown_year = [n for n, t in person_types.items() if t == 'resident']
+    if unknown_year:
+        print(f"\nResidents with unknown year level ({len(unknown_year)}):")
+        for name in unknown_year[:10]:
+            color = person_colors.get(name, 'no color')
             print(f"  {name}: {color}")
 
     print(f"\nPerson type breakdown:")
