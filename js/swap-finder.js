@@ -294,6 +294,12 @@ function calculateSwapEase(myType, theirType, prefersNights = new Set(), candida
     return 'Moderate';
   }
 
+  // GOR3/GOR4 are home call shifts that residents get paid for - very desirable
+  // Asking someone to give up their paid home call for any other call is a very hard sell
+  if (theirShifts.has('CA GOR3') || theirShifts.has('CA GOR4')) {
+    return 'Very hard';
+  }
+
   // If they prefer nights and have nights, taking them is actually harder
   // If they prefer nights and I'm offering nights, it's easier for them
   const candidatePreferNights = candidate ? prefersNights.has(candidate) : false;
@@ -788,6 +794,14 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
   if (Object.keys(candidatesByShift).length > 1) {
     const candidateCoverage = {};
 
+    // Count total unique blocking dates
+    const allBlockingDates = new Set();
+    for (const shiftKey of Object.keys(candidatesByShift)) {
+      const dateStr = shiftKey.split(' (')[0];
+      allBlockingDates.add(dateStr);
+    }
+    const totalBlockedDates = allBlockingDates.size;
+
     for (const [shiftKey, candidates] of Object.entries(candidatesByShift)) {
       // Extract date from shiftKey (format: "2026-04-28 (CA CART Night Call)")
       const dateStr = shiftKey.split(' (')[0];
@@ -801,15 +815,22 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
       }
     }
 
-    // Sort by number of unique DATES they can cover (not total shifts)
+    // Sort by: covers-all first, then by coverage count
     const packages = Object.entries(candidateCoverage)
       .map(([candidate, data]) => ({
         candidate,
         can_cover: [...data.dates].sort(),  // Show unique dates
-        coverage_count: data.dates.size      // Count unique dates
+        coverage_count: data.dates.size,     // Count unique dates
+        total_blocked: totalBlockedDates,
+        covers_all: data.dates.size === totalBlockedDates
       }))
       .filter(pkg => pkg.coverage_count > 1)
-      .sort((a, b) => b.coverage_count - a.coverage_count);
+      .sort((a, b) => {
+        // Covers-all first
+        if (a.covers_all !== b.covers_all) return b.covers_all ? 1 : -1;
+        // Then by coverage count
+        return b.coverage_count - a.coverage_count;
+      });
 
     packageRecommendations.push(...packages);
   }

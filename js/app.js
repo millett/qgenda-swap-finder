@@ -570,8 +570,8 @@ function findCoverageCandidates(schedule, myName, dates) {
     const allResidents = new Set(relevantSchedule.map(s => s.name));
     allResidents.delete(myName);
 
-    // Unavailable shift types
-    const unavailableShifts = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS]);
+    // Unavailable shift types - include day shifts since they're working
+    const unavailableShifts = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS, ...DAY_SHIFTS]);
 
     const candidates = [];
 
@@ -688,29 +688,8 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
         `;
     }
 
-    // Render package recommendations
-    if (result.package_recommendations && result.package_recommendations.length > 0) {
-        const pkgHtml = result.package_recommendations.map(pkg => {
-            if (friendsOnly && !getFriends().friends.includes(pkg.candidate)) return '';
-            // Filter by person type (CRNA filter)
-            const ptype = getPersonType(pkg.candidate);
-            if (ptype === 'crna' && !showCRNA) return '';
-            // Format dates nicely
-            const dateList = pkg.can_cover.map(dateStr => {
-                const d = parseDate(dateStr);
-                return formatDateDisplay(d);
-            }).join(', ');
-            return `
-            <div class="package-deal">
-                <strong>${pkg.candidate}</strong> can cover ${pkg.coverage_count} date${pkg.coverage_count > 1 ? 's' : ''}:
-                <div class="package-dates">${dateList}</div>
-            </div>
-        `}).join('');
-        document.getElementById('trip-packages').innerHTML = pkgHtml ?
-            `<h4>Package Deals</h4>${pkgHtml}` : '';
-    } else {
-        document.getElementById('trip-packages').innerHTML = '';
-    }
+    // Package Deals removed - Swap Suggestions are more useful and actionable
+    document.getElementById('trip-packages').innerHTML = '';
 
     // Find people who are FREE on the blocked dates (for coverage, not swap)
     const blockedDates = blockingOnly.map(s => formatDate(s.date));
