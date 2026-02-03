@@ -91,9 +91,15 @@ COLOR_TO_TYPE = {
     'FFFF0000': 'other',
     '00FF0000': 'other',
 
-    # Pink/Salmon = likely faculty or other
+    # Pink/Salmon = faculty
     '00FFCCCC': 'faculty',
     'FFFFCCCC': 'faculty',
+
+    # Light lavender/periwinkle = faculty (Awad, Patel, etc.)
+    '00CCCCFF': 'faculty',
+    'FFCCCCFF': 'faculty',
+    '0099FFFF': 'faculty',
+    'FF99FFFF': 'faculty',
 
     # Light green = unknown, classify as other for now
     '0099FF99': 'other',
