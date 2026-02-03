@@ -76,6 +76,15 @@ Includes everything in Night Call Shifts, plus:
 
 > **Important**: ICU rotations are assigned in advance and are NOT eligible for swaps. The app filters these out automatically.
 
+### Senior-Only Shifts (CA3+ Required)
+**Shifts that require CA3 or fellow seniority to cover.**
+
+| Shift Name | Notes |
+|------------|-------|
+| CA Senior Night Call | Only CA3+ can cover |
+
+> **Important**: CA1 and CA2 residents cannot cover these shifts. The app filters them out based on PERSON_TYPES_DATA.
+
 ### Vacation/Unavailable Shifts
 **Time off, excused absences, and status markers.**
 
@@ -111,6 +120,12 @@ Includes everything in Night Call Shifts, plus:
 - **ICU Rotations** (CTICU, SICU, ICU Call) - monthly assignments
 - **Vacation** - generally very hard (shown with "Very hard" ease)
 - **Post-call days** - not real shifts, just markers
+
+### Seniority Requirements
+- **CA Senior Night Call** - Only CA3+ can cover
+- The app checks both directions:
+  - Can YOU cover THEIR shift? (e.g., CA2 can't take Senior Night Call)
+  - Can THEY cover YOUR shift? (e.g., don't suggest CA2 to cover your Senior Night Call)
 
 ### Post-Call Conflict Detection
 When swapping night calls, the system checks:
@@ -247,12 +262,14 @@ All swap logic lives in `js/swap-finder.js`:
 
 | Function | Line | Purpose |
 |----------|------|---------|
-| `hasPostCallConflict()` | ~224 | Check if night call creates conflict |
-| `classifyWeekendType()` | ~264 | Categorize weekend as night/day/off |
-| `calculateSwapEase()` | ~285 | Compute swap difficulty |
-| `findSwapCandidates()` | ~367 | Find people to swap single shifts |
-| `findWeekendSwap()` | ~490 | Find weekend swap partners |
-| `findTripCoverage()` | ~688 | Find trip coverage options |
+| `canCoverShift()` | ~108 | Check seniority eligibility for shift |
+| `hasPostCallConflict()` | ~260 | Check if night call creates conflict |
+| `classifyWeekendType()` | ~300 | Categorize weekend as night/day/off |
+| `calculateSwapEase()` | ~320 | Compute swap difficulty |
+| `findSwapCandidates()` | ~400 | Find people to swap single shifts |
+| `findWeekendSwap()` | ~530 | Find weekend swap partners |
+| `findTripCoverage()` | ~730 | Find trip coverage options |
+| `findTripSwapOpportunities()` | ~1140 | Find swap opportunities for trip |
 
 ---
 
@@ -261,3 +278,4 @@ All swap logic lives in `js/swap-finder.js`:
 | Date | Change |
 |------|--------|
 | 2026-02-02 | Initial documentation created |
+| 2026-02-02 | Added SENIOR_ONLY_SHIFTS, seniority eligibility checks |

@@ -46,6 +46,11 @@ const ICU_SHIFTS = new Set([
   'CA ICU 3 Elective',
 ]);
 
+// Shifts that require CA3+ seniority (CA2 and below cannot cover these)
+const SENIOR_ONLY_SHIFTS = new Set([
+  'CA Senior Night Call',
+]);
+
 // Vacation shifts - asymmetric handling (hard for them to give up, but I can offer to work)
 const VACATION_SHIFTS = new Set([
   'CA Vacation',
@@ -91,6 +96,41 @@ const UNAVAILABLE_SHIFTS = new Set([
   'CA Meeting',
   'CA half-day/meeting',
 ]);
+
+// ============================================================================
+// ELIGIBILITY HELPERS
+// ============================================================================
+
+/**
+ * Check if a person can cover a specific shift based on seniority.
+ * Uses PERSON_TYPES_DATA from schedule.js.
+ *
+ * @param {string} personName - Name of the person
+ * @param {string} shift - Shift name to check
+ * @returns {boolean} True if eligible to cover the shift
+ */
+function canCoverShift(personName, shift) {
+  // If not a senior-only shift, anyone can cover
+  if (!SENIOR_ONLY_SHIFTS.has(shift)) {
+    return true;
+  }
+
+  // Get person type from schedule.js data
+  const personType = (typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown';
+
+  // Senior-only shifts require CA3+ or fellow
+  const seniorTypes = new Set(['ca3', 'fellow']);
+  return seniorTypes.has(personType);
+}
+
+/**
+ * Get a person's seniority type.
+ * @param {string} personName
+ * @returns {string}
+ */
+function getPersonSeniority(personName) {
+  return (typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown';
+}
 
 // ============================================================================
 // DATE UTILITIES
@@ -385,10 +425,10 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
     // Check what they're doing on my_date
     const theirShiftOnMyDate = getShiftsOnDate(caSchedule, resident, myDateObj);
 
-    // Skip if they're on call, post-call, or unavailable on my date
+    // Skip if they're working or unavailable on my date (can't double-book)
     if (theirShiftOnMyDate.length > 0) {
       const theirShifts = new Set(theirShiftOnMyDate.map(s => s.shift));
-      const unavail = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+      const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS]);
       if (setsIntersect(theirShifts, unavail)) {
         continue;
       }
@@ -425,6 +465,12 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
     for (const swap of potentialSwaps) {
       const swapDate = parseDate(swap.date);
 
+      // Skip if I can't cover their shift (seniority check)
+      if (!canCoverShift(myName, swap.shift)) continue;
+
+      // Skip if they can't cover my shift (seniority check)
+      if (!canCoverShift(resident, myShift)) continue;
+
       // Check if I'm available on their date
       const myShiftsThatDay = getShiftsOnDate(caSchedule, myName, swapDate);
 
@@ -433,7 +479,8 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
         available = true;
       } else {
         const myShiftTypes = new Set(myShiftsThatDay.map(s => s.shift));
-        const unavail = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+        // Can't take their shift if I'm already working (day or call) or unavailable
+        const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS]);
         available = !setsIntersect(myShiftTypes, unavail);
       }
 
@@ -571,8 +618,8 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
         continue;
       }
 
-      // Are they free/available on my weekend?
-      const unavail = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+      // Are they free/available on my weekend? (can't have any work shifts)
+      const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS]);
       const availableMyWeekend = !setsIntersect(theirShiftsMyWeekend, unavail);
 
       // Am I available on THEIR weekend?
@@ -633,6 +680,22 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
         }
 
         if (skipDueToPostCall) {
+          continue;
+        }
+
+        // Check seniority eligibility for the swap
+        // Can I cover their senior-only shifts?
+        const theyHaveSeniorShifts = [...theirWeekendShifts].filter(s => SENIOR_ONLY_SHIFTS.has(s));
+        const iCanCoverTheirs = theyHaveSeniorShifts.every(s => canCoverShift(myName, s));
+        if (!iCanCoverTheirs) {
+          continue;
+        }
+
+        // Can they cover my senior-only shifts?
+        const myWeekendShiftSet = new Set([...mySatShiftSet, ...mySunShiftSet]);
+        const iHaveSeniorShifts = [...myWeekendShiftSet].filter(s => SENIOR_ONLY_SHIFTS.has(s));
+        const theyCanCoverMine = iHaveSeniorShifts.every(s => canCoverShift(resident, s));
+        if (!theyCanCoverMine) {
           continue;
         }
 
@@ -1179,6 +1242,9 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
       // Skip samaritans - they're shown separately
       if (goodSamaritanSet.has(person)) continue;
 
+      // Skip if they can't cover my shift (e.g., CA2 can't cover Senior Night Call)
+      if (!canCoverShift(person, myShift)) continue;
+
       // Find their upcoming shifts that I could take in exchange
       let current = addDays(today, 1);  // Start from TOMORROW, not today
       while (current <= endDate) {
@@ -1191,6 +1257,9 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
           if (ICU_SHIFTS.has(theirShift) || UNAVAILABLE_SHIFTS.has(theirShift)) continue;
           if (!CALL_SHIFTS.has(theirShift) && !DAY_SHIFTS.has(theirShift)) continue;
 
+          // Skip shifts I'm not senior enough to cover (e.g., CA2 can't cover Senior Night Call)
+          if (!canCoverShift(myName, theirShift)) continue;
+
           // Check if I'm available on their shift date
           const myShiftsOnTheirDate = getShiftsOnDate(caSchedule, myName, current);
           const myShiftSetOnTheirDate = new Set(myShiftsOnTheirDate.map(s => s.shift));
@@ -1201,7 +1270,8 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
             continue;
           }
 
-          const busyShifts = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+          // Can't take their shift if I'm already working (day or call) or unavailable
+          const busyShifts = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS]);
           const iAmAvailable = !setsIntersect(myShiftSetOnTheirDate, busyShifts);
 
           if (iAmAvailable) {
@@ -1318,6 +1388,11 @@ window.SwapFinder = {
   VACATION_SHIFTS,
   DAY_SHIFTS,
   UNAVAILABLE_SHIFTS,
+  SENIOR_ONLY_SHIFTS,
+
+  // Eligibility helpers
+  canCoverShift,
+  getPersonSeniority,
 
   // Date utilities
   parseDate,
