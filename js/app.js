@@ -597,6 +597,20 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
 
     const result = findTripCoverage(SCHEDULE, MY_NAME, startDate, endDate, departEvening);
 
+    // Show data warning prominently if schedule doesn't cover the requested dates
+    let dataWarningHtml = '';
+    if (result.data_warning) {
+        const scheduleEndDate = result.data_warning.scheduleEnd ?
+            formatDateDisplay(result.data_warning.scheduleEnd) : '';
+        dataWarningHtml = `
+            <div class="data-warning-banner">
+                <strong>⚠️ INCOMPLETE DATA</strong>
+                <p>${result.data_warning.message}</p>
+                <p>Your trip dates extend beyond available schedule data. Results may be incomplete or inaccurate.</p>
+            </div>
+        `;
+    }
+
     // Only show shifts that actually block travel (need coverage)
     const blockingOnly = result.blocking_shifts.filter(s => s.blocks_travel);
 
@@ -622,10 +636,10 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     `}).join('');
 
     if (blockingOnly.length === 0) {
-        document.getElementById('trip-shifts').innerHTML =
+        document.getElementById('trip-shifts').innerHTML = dataWarningHtml +
             '<p class="success-message">✅ No blocking shifts - you\'re free to travel!</p>';
     } else {
-        document.getElementById('trip-shifts').innerHTML = `
+        document.getElementById('trip-shifts').innerHTML = dataWarningHtml + `
             <p class="warning-message">⚠️ ${blockingOnly.length} shift(s) need coverage:</p>
             ${blockingHtml}
         `;

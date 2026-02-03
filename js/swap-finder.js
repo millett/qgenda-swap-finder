@@ -669,6 +669,33 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
 
   const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
 
+  // Find the date range of the user's schedule data
+  const myAllShifts = caSchedule.filter(s => s.name === myName);
+  let scheduleStart = null;
+  let scheduleEnd = null;
+
+  if (myAllShifts.length > 0) {
+    const dates = myAllShifts.map(s => parseDate(s.date)).sort((a, b) => a - b);
+    scheduleStart = dates[0];
+    scheduleEnd = dates[dates.length - 1];
+  }
+
+  // Check if trip dates are outside the schedule data range
+  let dataWarning = null;
+  if (scheduleEnd && end > scheduleEnd) {
+    dataWarning = {
+      type: 'incomplete_data',
+      message: `Schedule data for ${myName} only extends through ${formatDate(scheduleEnd)}. Dates after this are not covered.`,
+      scheduleEnd: scheduleEnd
+    };
+  } else if (scheduleStart && start < scheduleStart) {
+    dataWarning = {
+      type: 'incomplete_data',
+      message: `Schedule data for ${myName} starts on ${formatDate(scheduleStart)}. Dates before this are not covered.`,
+      scheduleStart: scheduleStart
+    };
+  }
+
   // Expand range if departing day before
   const checkStart = departDayBefore ? addDays(start, -1) : start;
 
@@ -685,7 +712,8 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
     return {
       blocking_shifts: [],
       candidates_by_shift: {},
-      package_recommendations: []
+      package_recommendations: [],
+      data_warning: dataWarning
     };
   }
 
@@ -773,7 +801,8 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
   return {
     blocking_shifts: blockingShifts,
     candidates_by_shift: candidatesByShift,
-    package_recommendations: packageRecommendations
+    package_recommendations: packageRecommendations,
+    data_warning: dataWarning
   };
 }
 
