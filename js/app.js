@@ -668,31 +668,36 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     }
 
     // Render blocking shifts grouped by date
+    // Filter out Post Call markers - they're not real shifts to swap
+    const POST_CALL_MARKERS = new Set(['CA Post Call', 'CA Home Post Call']);
     const blockingHtml = Object.entries(byDate).map(([dateStr, shifts]) => {
         const dateDisplay = formatDateDisplay(parseDate(dateStr));
-        const shiftList = shifts.map(s => s.shift).join(', ');
+        const realShifts = shifts.filter(s => !POST_CALL_MARKERS.has(s.shift));
+        const shiftList = realShifts.map(s => s.shift.replace('CA ', '')).join(', ');
+        if (realShifts.length === 0) return ''; // Skip if only post-call
         return `
         <div class="blocking-shift blocks">
             <strong>🚫 ${dateDisplay}</strong> - ${shiftList}
-            <small>(${shifts[0].reason})</small>
+            <small>(${realShifts[0].reason})</small>
         </div>
     `}).join('');
 
-    if (blockingOnly.length === 0) {
+    // Filter out post-call markers to get actual shifts needing coverage
+    const actualBlockingShifts = blockingOnly.filter(s => !POST_CALL_MARKERS.has(s.shift));
+    const blockedDates = [...new Set(actualBlockingShifts.map(s => formatDate(s.date)))];
+
+    if (actualBlockingShifts.length === 0) {
         document.getElementById('trip-shifts').innerHTML = dataWarningHtml +
             '<p class="success-message">✅ No blocking shifts - you\'re free to travel!</p>';
     } else {
         document.getElementById('trip-shifts').innerHTML = dataWarningHtml + `
-            <p class="warning-message">⚠️ ${blockingOnly.length} shift(s) need coverage:</p>
+            <p class="warning-message">⚠️ ${actualBlockingShifts.length} shift(s) need coverage:</p>
             ${blockingHtml}
         `;
     }
 
     // Package Deals removed - Swap Suggestions are more useful and actionable
     document.getElementById('trip-packages').innerHTML = '';
-
-    // Find people who are FREE on the blocked dates (for coverage, not swap)
-    const blockedDates = blockingOnly.map(s => formatDate(s.date));
     const coverageCandidates = findCoverageCandidates(SCHEDULE, MY_NAME, blockedDates);
 
     let filtered = coverageCandidates;
@@ -702,9 +707,11 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     }
 
     // Filter by person type (residents and fellows always shown, CRNAs optional)
+    // Exclude interns - they can't cover call shifts
     filtered = filtered.filter(c => {
         const ptype = getPersonType(c.name);
-        if (isResident(c.name)) return true;  // Always show residents
+        if (ptype === 'intern') return false;  // Interns can't cover call
+        if (isResident(c.name)) return true;  // Show CA1-CA3
         if (ptype === 'crna' && showCRNA) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
@@ -788,7 +795,8 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             }
             filteredSwaps = filteredSwaps.filter(s => {
                 const ptype = getPersonType(s.candidate);
-                if (isResident(s.candidate)) return true;
+                if (ptype === 'intern') return false;  // Interns can't cover call
+                if (isResident(s.candidate)) return true;  // Show CA1-CA3
                 if (ptype === 'crna' && showCRNA) return true;
                 if (ptype === 'fellow') return true;
                 return false;
