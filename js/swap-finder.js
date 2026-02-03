@@ -1048,6 +1048,194 @@ function generateSwapMessage(candidateName, myShift, myDate, theirShift, theirDa
   }
 }
 
+/**
+ * Find swap opportunities for trip coverage.
+ * For people who can cover your blocked dates, find shifts of theirs you could take in return.
+ *
+ * @param {Array} schedule - Full schedule array
+ * @param {string} myName - Your name
+ * @param {Array} blockedDates - Array of date strings (YYYY-MM-DD) that need coverage
+ * @param {number} lookWeeks - How many weeks ahead to look for swap opportunities
+ * @returns {Object} { goodSamaritans: [], swapSuggestions: [] }
+ */
+function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4) {
+  const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
+  const friends = getFriends();
+  const prefersNights = new Set(friends.prefers_nights || []);
+  const goodSamaritanSet = new Set(friends.good_samaritans || []);
+
+  // Get all residents/people who could potentially help
+  const allPeople = new Set(caSchedule.map(s => s.name));
+  allPeople.delete(myName);
+
+  // Find who is free on each blocked date
+  const freePeopleByDate = {};
+  for (const dateStr of blockedDates) {
+    const dateObj = parseDate(dateStr);
+    freePeopleByDate[dateStr] = [];
+
+    for (const person of allPeople) {
+      const theirShifts = getShiftsOnDate(caSchedule, person, dateObj);
+      const shiftSet = new Set(theirShifts.map(s => s.shift));
+
+      // Check if they're free (no work/call shifts)
+      const busyShifts = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS]);
+      const isFree = !setsIntersect(shiftSet, busyShifts);
+
+      // Also check day before for night call conflicts
+      const dayBefore = addDays(dateObj, -1);
+      const dayBeforeShifts = getShiftsOnDate(caSchedule, person, dayBefore);
+      const hasNightCallDayBefore = dayBeforeShifts.some(s => NIGHT_CALL_SHIFTS.has(s.shift));
+
+      if (isFree && !hasNightCallDayBefore) {
+        freePeopleByDate[dateStr].push(person);
+      }
+    }
+  }
+
+  // Separate good samaritans (no swap needed)
+  const goodSamaritans = [];
+  const samaritanCoverage = {};
+
+  for (const [dateStr, freePeople] of Object.entries(freePeopleByDate)) {
+    for (const person of freePeople) {
+      if (goodSamaritanSet.has(person)) {
+        if (!samaritanCoverage[person]) {
+          samaritanCoverage[person] = [];
+        }
+        samaritanCoverage[person].push(dateStr);
+      }
+    }
+  }
+
+  for (const [person, dates] of Object.entries(samaritanCoverage)) {
+    goodSamaritans.push({
+      name: person,
+      canCoverDates: dates,
+      coverageCount: dates.length,
+      coversAll: dates.length === blockedDates.length
+    });
+  }
+
+  // Sort samaritans by coverage
+  goodSamaritans.sort((a, b) => b.coverageCount - a.coverageCount);
+
+  // Find swap opportunities for non-samaritans
+  const swapSuggestions = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = addDays(today, lookWeeks * 7);
+
+  // For each blocked date, find people who are free and their upcoming shifts I could take
+  for (const [blockedDateStr, freePeople] of Object.entries(freePeopleByDate)) {
+    const blockedDateObj = parseDate(blockedDateStr);
+
+    // Get my shift on the blocked date
+    const myShifts = getShiftsOnDate(caSchedule, myName, blockedDateObj);
+    const myShift = myShifts.length > 0 ? myShifts[0].shift : 'Unknown shift';
+    const myShiftType = classifyShift(myShift);
+
+    for (const person of freePeople) {
+      // Skip samaritans - they're shown separately
+      if (goodSamaritanSet.has(person)) continue;
+
+      // Find their upcoming shifts that I could take in exchange
+      let current = today;
+      while (current <= endDate) {
+        const theirShifts = getShiftsOnDate(caSchedule, person, current);
+
+        for (const shiftRecord of theirShifts) {
+          const theirShift = shiftRecord.shift;
+
+          // Skip non-swappable shifts
+          if (ICU_SHIFTS.has(theirShift) || UNAVAILABLE_SHIFTS.has(theirShift)) continue;
+          if (!CALL_SHIFTS.has(theirShift) && !DAY_SHIFTS.has(theirShift)) continue;
+
+          // Check if I'm available on their shift date
+          const myShiftsOnTheirDate = getShiftsOnDate(caSchedule, myName, current);
+          const myShiftSetOnTheirDate = new Set(myShiftsOnTheirDate.map(s => s.shift));
+
+          // Skip if I have ICU or other unavailable shifts
+          if (setsIntersect(myShiftSetOnTheirDate, ICU_SHIFTS)) {
+            current = addDays(current, 1);
+            continue;
+          }
+
+          const busyShifts = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+          const iAmAvailable = !setsIntersect(myShiftSetOnTheirDate, busyShifts);
+
+          if (iAmAvailable) {
+            // Check post-call conflicts if their shift is night call
+            if (NIGHT_CALL_SHIFTS.has(theirShift)) {
+              if (hasPostCallConflict(caSchedule, myName, current)) {
+                continue;
+              }
+            }
+
+            // Calculate ease
+            const theirShiftType = classifyShift(theirShift);
+            const theirShiftSet = new Set([theirShift]);
+            const ease = calculateSwapEase(
+              myShiftType === 'call' ? 'night' : myShiftType === 'day' ? 'day' : 'off',
+              theirShiftType === 'call' ? 'night' : theirShiftType === 'day' ? 'day' : 'off',
+              prefersNights,
+              person,
+              theirShiftSet
+            );
+
+            swapSuggestions.push({
+              candidate: person,
+              blockedDate: blockedDateStr,
+              myShift: myShift,
+              theirDate: formatDate(current),
+              theirShift: theirShift,
+              ease: ease,
+              isFriend: friends.friends.includes(person),
+              prefersNights: prefersNights.has(person)
+            });
+          }
+        }
+        current = addDays(current, 1);
+      }
+    }
+  }
+
+  // Sort swap suggestions: easier first, then friends, then by date
+  const easeOrder = { 'Easy': 0, 'Moderate': 1, 'Hard sell': 2, 'Very hard': 3 };
+  swapSuggestions.sort((a, b) => {
+    // By ease first
+    const easeA = easeOrder[a.ease] || 1;
+    const easeB = easeOrder[b.ease] || 1;
+    if (easeA !== easeB) return easeA - easeB;
+
+    // Friends first
+    if (a.isFriend !== b.isFriend) return b.isFriend ? 1 : -1;
+
+    // By their date
+    return a.theirDate.localeCompare(b.theirDate);
+  });
+
+  // Limit to top suggestions per blocked date (keep more for expand functionality)
+  const limitedSuggestions = [];
+  const seenByBlockedDate = {};
+
+  for (const suggestion of swapSuggestions) {
+    const key = suggestion.blockedDate;
+    if (!seenByBlockedDate[key]) {
+      seenByBlockedDate[key] = 0;
+    }
+    if (seenByBlockedDate[key] < 15) {
+      limitedSuggestions.push(suggestion);
+      seenByBlockedDate[key]++;
+    }
+  }
+
+  return {
+    goodSamaritans,
+    swapSuggestions: limitedSuggestions
+  };
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -1107,6 +1295,7 @@ window.SwapFinder = {
   findSwapCandidates,
   findWeekendSwap,
   findTripCoverage,
+  findTripSwapOpportunities,
   findGoldenWeekends,
   getScheduleSummary,
   generateSwapMessage,

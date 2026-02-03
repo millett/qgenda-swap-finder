@@ -47,6 +47,20 @@
 }
 
 /* ============================================
+   Beta Badge
+   ============================================ */
+
+.beta-badge {
+  font-size: 0.5em;
+  vertical-align: super;
+  background: #6c5ce7;
+  color: white;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-weight: normal;
+}
+
+/* ============================================
    Tab System
    ============================================ */
 
@@ -554,6 +568,131 @@ tr.ease-very-hard {
   margin-top: 0.25rem;
 }
 
+/* Trip Swap Suggestions */
+.trip-samaritans {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.samaritan-card {
+  padding: 0.75rem;
+  background: var(--pico-card-background-color);
+  border-radius: 4px;
+  border-left: 4px solid #28a745;
+  background: linear-gradient(90deg, rgba(40,167,69,0.05) 0%, transparent 100%);
+}
+
+.samaritan-dates {
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+.samaritan-tip {
+  font-size: 0.8rem;
+  color: #28a745;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
+.swap-suggestions-hint {
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.75rem;
+}
+
+.trip-swap-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.trip-swap-card {
+  padding: 0.75rem 1rem;
+  background: var(--pico-card-background-color);
+  border-radius: 4px;
+  border-left: 4px solid;
+}
+
+.trip-swap-card.ease-easy {
+  border-left-color: #28a745;
+  background: linear-gradient(90deg, rgba(40,167,69,0.08) 0%, transparent 100%);
+}
+
+.trip-swap-card.ease-moderate {
+  border-left-color: #ffc107;
+  background: linear-gradient(90deg, rgba(255,193,7,0.08) 0%, transparent 100%);
+}
+
+.trip-swap-card.ease-hard-sell {
+  border-left-color: #dc3545;
+  background: linear-gradient(90deg, rgba(220,53,69,0.08) 0%, transparent 100%);
+}
+
+.trip-swap-card.ease-very-hard {
+  border-left-color: #6c757d;
+  background: linear-gradient(90deg, rgba(108,117,125,0.1) 0%, transparent 100%);
+}
+
+.trip-swap-card .swap-header {
+  margin-bottom: 0.5rem;
+}
+
+.trip-swap-card .swap-details {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.trip-swap-card .swap-give,
+.trip-swap-card .swap-get {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.trip-swap-card .swap-details .label {
+  font-size: 0.75rem;
+  color: var(--pico-muted-color);
+}
+
+.trip-swap-card .swap-shift {
+  font-weight: 500;
+}
+
+.trip-swap-card .swap-arrow {
+  color: var(--pico-muted-color);
+  font-size: 1.1rem;
+}
+
+.ease-badge.hard-sell {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.swap-card-hidden {
+  display: none;
+}
+
+.expand-swaps-btn {
+  margin-top: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  background: var(--pico-secondary-background);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.expand-swaps-btn:hover {
+  background: var(--pico-secondary-hover-background);
+}
+
 /* ============================================
    Loading State
    ============================================ */
@@ -694,4 +833,33 @@ table th {
 
 [data-theme="dark"] .coverage-candidate.is-friend {
   background: linear-gradient(90deg, rgba(40,167,69,0.15) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .samaritan-card {
+  background: linear-gradient(90deg, rgba(40,167,69,0.15) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .samaritan-tip {
+  color: #8fd19e;
+}
+
+[data-theme="dark"] .trip-swap-card.ease-easy {
+  background: linear-gradient(90deg, rgba(40,167,69,0.15) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .trip-swap-card.ease-moderate {
+  background: linear-gradient(90deg, rgba(255,193,7,0.12) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .trip-swap-card.ease-hard-sell {
+  background: linear-gradient(90deg, rgba(220,53,69,0.15) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .trip-swap-card.ease-very-hard {
+  background: linear-gradient(90deg, rgba(108,117,125,0.2) 0%, transparent 100%);
+}
+
+[data-theme="dark"] .ease-badge.hard-sell {
+  background: rgba(220, 53, 69, 0.3);
+  color: #f5a6ad;
 }

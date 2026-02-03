@@ -692,6 +692,9 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     if (result.package_recommendations && result.package_recommendations.length > 0) {
         const pkgHtml = result.package_recommendations.map(pkg => {
             if (friendsOnly && !getFriends().friends.includes(pkg.candidate)) return '';
+            // Filter by person type (CRNA filter)
+            const ptype = getPersonType(pkg.candidate);
+            if (ptype === 'crna' && !showCRNA) return '';
             // Format dates nicely
             const dateList = pkg.can_cover.map(dateStr => {
                 const d = parseDate(dateStr);
@@ -774,7 +777,111 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     }
     document.getElementById('trip-candidates').innerHTML = candidatesHtml;
 
+    // Render swap suggestions if there are blocked dates
+    if (blockedDates.length > 0) {
+        const swapResults = findTripSwapOpportunities(SCHEDULE, MY_NAME, blockedDates, 4);
+        let swapsHtml = '';
+
+        // Good Samaritans section
+        if (swapResults.goodSamaritans.length > 0) {
+            swapsHtml += '<h4>😇 Good Samaritans (No Swap Needed)</h4>';
+            swapsHtml += '<div class="trip-samaritans">';
+            swapResults.goodSamaritans.forEach(sam => {
+                const dateList = sam.canCoverDates.map(d => formatDateDisplay(parseDate(d)).split(' ')[1]).join(', ');
+                swapsHtml += `
+                    <div class="samaritan-card">
+                        <strong>${sam.name}</strong>
+                        ${sam.coversAll ? '<span class="badge covers-all-badge">✓ All</span>' : ''}
+                        <div class="samaritan-dates">Can cover: ${dateList}</div>
+                        <div class="samaritan-tip">💡 Can ask directly - no swap needed!</div>
+                    </div>
+                `;
+            });
+            swapsHtml += '</div>';
+        }
+
+        // Swap Suggestions section
+        if (swapResults.swapSuggestions.length > 0) {
+            // Filter by CRNA and friends settings
+            let filteredSwaps = swapResults.swapSuggestions;
+            if (friendsOnly) {
+                filteredSwaps = filteredSwaps.filter(s => s.isFriend);
+            }
+            filteredSwaps = filteredSwaps.filter(s => {
+                const ptype = getPersonType(s.candidate);
+                if (isResident(s.candidate)) return true;
+                if (ptype === 'crna' && showCRNA) return true;
+                if (ptype === 'fellow') return true;
+                return false;
+            });
+
+            if (filteredSwaps.length > 0) {
+                swapsHtml += '<h4>💱 Swap Suggestions</h4>';
+                swapsHtml += '<p class="swap-suggestions-hint">Offer to take their shift in exchange for coverage</p>';
+                swapsHtml += '<div class="trip-swap-cards" id="trip-swap-cards-container">';
+
+                const initialLimit = 5;
+                filteredSwaps.forEach((swap, index) => {
+                    const easeClass = swap.ease.toLowerCase().replace(' ', '-');
+                    const personType = getPersonType(swap.candidate);
+                    const typeLabel = getTypeLabel(personType);
+                    const typeClass = getTypeClass(personType);
+                    const blockedDateDisplay = formatDateDisplay(parseDate(swap.blockedDate));
+                    const theirDateDisplay = formatDateDisplay(parseDate(swap.theirDate));
+                    const hiddenClass = index >= initialLimit ? 'swap-card-hidden' : '';
+
+                    swapsHtml += `
+                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass}">
+                            <div class="swap-header">
+                                <span class="candidate-name">
+                                    ${swap.candidate}
+                                    ${typeLabel ? `<span class="type-badge ${typeClass}">${typeLabel}</span>` : ''}
+                                    ${swap.isFriend ? '<span class="type-badge friend">Friend</span>' : ''}
+                                </span>
+                                <span class="ease-badge ${easeClass}">${swap.ease}</span>
+                            </div>
+                            <div class="swap-details">
+                                <div class="swap-give">
+                                    <span class="label">You work:</span>
+                                    <span class="swap-shift">${theirDateDisplay} - ${swap.theirShift.replace('CA ', '')}</span>
+                                </div>
+                                <div class="swap-arrow">↔</div>
+                                <div class="swap-get">
+                                    <span class="label">They cover:</span>
+                                    <span class="swap-shift">${blockedDateDisplay} - ${swap.myShift.replace('CA ', '')}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                swapsHtml += '</div>';
+
+                // Add expand button if there are more than 5
+                if (filteredSwaps.length > initialLimit) {
+                    const hiddenCount = filteredSwaps.length - initialLimit;
+                    swapsHtml += `
+                        <button class="expand-swaps-btn" id="expand-swaps-btn" onclick="expandTripSwaps()">
+                            Show ${hiddenCount} more suggestion${hiddenCount > 1 ? 's' : ''}
+                        </button>
+                    `;
+                }
+            }
+        }
+
+        document.getElementById('trip-swaps').innerHTML = swapsHtml;
+    } else {
+        document.getElementById('trip-swaps').innerHTML = '';
+    }
+
     hideLoading('trip-shifts');
+}
+
+// Expand hidden trip swap suggestions
+function expandTripSwaps() {
+    const hiddenCards = document.querySelectorAll('.trip-swap-card.swap-card-hidden');
+    hiddenCards.forEach(card => card.classList.remove('swap-card-hidden'));
+    const btn = document.getElementById('expand-swaps-btn');
+    if (btn) btn.remove();
 }
 
 // Tab 4: Weekend Swap
