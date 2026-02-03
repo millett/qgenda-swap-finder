@@ -635,10 +635,15 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     if (result.package_recommendations && result.package_recommendations.length > 0) {
         const pkgHtml = result.package_recommendations.map(pkg => {
             if (friendsOnly && !getFriends().friends.includes(pkg.candidate)) return '';
+            // Format dates nicely
+            const dateList = pkg.can_cover.map(dateStr => {
+                const d = parseDate(dateStr);
+                return formatDateDisplay(d);
+            }).join(', ');
             return `
             <div class="package-deal">
-                <strong>${pkg.candidate}</strong> can cover ${pkg.coverage_count} shifts:
-                <ul>${pkg.can_cover.map(s => `<li>${s}</li>`).join('')}</ul>
+                <strong>${pkg.candidate}</strong> can cover ${pkg.coverage_count} date${pkg.coverage_count > 1 ? 's' : ''}:
+                <div class="package-dates">${dateList}</div>
             </div>
         `}).join('');
         document.getElementById('trip-packages').innerHTML = pkgHtml ?

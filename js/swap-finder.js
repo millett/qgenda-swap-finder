@@ -739,25 +739,30 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
   }
 
   // Find people who could cover multiple shifts (package deals)
+  // Group by DATE (not individual shifts) to avoid counting same day multiple times
   const packageRecommendations = [];
   if (Object.keys(candidatesByShift).length > 1) {
     const candidateCoverage = {};
 
     for (const [shiftKey, candidates] of Object.entries(candidatesByShift)) {
+      // Extract date from shiftKey (format: "2026-04-28 (CA CART Night Call)")
+      const dateStr = shiftKey.split(' (')[0];
+
       for (const candidate of candidates) {
         if (!candidateCoverage[candidate.candidate]) {
-          candidateCoverage[candidate.candidate] = [];
+          candidateCoverage[candidate.candidate] = { dates: new Set(), shifts: [] };
         }
-        candidateCoverage[candidate.candidate].push(shiftKey);
+        candidateCoverage[candidate.candidate].dates.add(dateStr);
+        candidateCoverage[candidate.candidate].shifts.push(shiftKey);
       }
     }
 
-    // Sort by number of shifts they can cover
+    // Sort by number of unique DATES they can cover (not total shifts)
     const packages = Object.entries(candidateCoverage)
-      .map(([candidate, shifts]) => ({
+      .map(([candidate, data]) => ({
         candidate,
-        can_cover: shifts,
-        coverage_count: shifts.length
+        can_cover: [...data.dates].sort(),  // Show unique dates
+        coverage_count: data.dates.size      // Count unique dates
       }))
       .filter(pkg => pkg.coverage_count > 1)
       .sort((a, b) => b.coverage_count - a.coverage_count);
