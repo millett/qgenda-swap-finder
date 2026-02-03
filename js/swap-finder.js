@@ -1146,9 +1146,12 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
   for (const [blockedDateStr, freePeople] of Object.entries(freePeopleByDate)) {
     const blockedDateObj = parseDate(blockedDateStr);
 
-    // Get my shift on the blocked date
+    // Get my shift on the blocked date - prefer the actual blocking shift, not Post Call
     const myShifts = getShiftsOnDate(caSchedule, myName, blockedDateObj);
-    const myShift = myShifts.length > 0 ? myShifts[0].shift : 'Unknown shift';
+    const POST_CALL_SHIFTS = new Set(['CA Post Call', 'CA Home Post Call']);
+    // Prefer call/day shifts over post-call markers
+    const blockingShift = myShifts.find(s => !POST_CALL_SHIFTS.has(s.shift));
+    const myShift = blockingShift ? blockingShift.shift : (myShifts.length > 0 ? myShifts[0].shift : 'Unknown shift');
     const myShiftType = classifyShift(myShift);
 
     for (const person of freePeople) {
