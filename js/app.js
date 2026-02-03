@@ -111,13 +111,13 @@ function getTypeClass(type) {
 }
 
 /**
- * Get all unique resident names from the schedule
+ * Get all unique resident names from the schedule (only actual residents)
  * @returns {Array} Sorted array of resident names
  */
 function getAllResidentNames() {
     const names = new Set();
     SCHEDULE.forEach(shift => {
-        if (shift.name) {
+        if (shift.name && isResident(shift.name)) {
             names.add(shift.name);
         }
     });
@@ -502,13 +502,15 @@ function initTripPlannerTab() {
         const endDate = document.getElementById('trip-end').value;
         const departEvening = document.getElementById('trip-depart-evening').checked;
         const friendsOnly = document.getElementById('trip-friends-only').checked;
+        const showCRNA = document.getElementById('trip-show-crna').checked;
+        const showFaculty = document.getElementById('trip-show-faculty').checked;
 
         if (!startDate || !endDate) {
             alert('Please select both start and end dates');
             return;
         }
 
-        renderTripPlanner(startDate, endDate, departEvening, friendsOnly);
+        renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA, showFaculty);
     });
 }
 
@@ -590,7 +592,7 @@ function findCoverageCandidates(schedule, myName, dates) {
     return candidates;
 }
 
-function renderTripPlanner(startDate, endDate, departEvening, friendsOnly) {
+function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA, showFaculty) {
     showLoading('trip-shifts');
 
     const result = findTripCoverage(SCHEDULE, MY_NAME, startDate, endDate, departEvening);
@@ -654,6 +656,16 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly) {
         const friendsData = getFriends();
         filtered = coverageCandidates.filter(c => friendsData.friends.includes(c.name));
     }
+
+    // Filter by person type
+    filtered = filtered.filter(c => {
+        const ptype = getPersonType(c.name);
+        if (isResident(c.name)) return true;  // Always show residents
+        if (ptype === 'crna' && showCRNA) return true;
+        if (ptype === 'faculty' && showFaculty) return true;
+        if (ptype === 'fellow') return true;  // Always show fellows
+        return false;
+    });
 
     // Render coverage candidates
     const residents = filtered.filter(c => c.type === 'resident');
@@ -764,6 +776,8 @@ function initWeekendSwapTab() {
         const selectedIdx = select.value;
         const weeksToSearch = parseInt(weeksSlider.value);
         const friendsOnly = document.getElementById('weekend-friends-only').checked;
+        const showCRNA = document.getElementById('weekend-show-crna').checked;
+        const showFaculty = document.getElementById('weekend-show-faculty').checked;
 
         if (selectedIdx === '' || !window.myWorkingWeekends || !window.myWorkingWeekends[selectedIdx]) {
             alert('Please select a weekend');
@@ -771,11 +785,11 @@ function initWeekendSwapTab() {
         }
 
         const weekend = window.myWorkingWeekends[selectedIdx];
-        renderWeekendSwap(weekend, weeksToSearch, friendsOnly);
+        renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFaculty);
     });
 }
 
-function renderWeekendSwap(weekend, weeksToSearch, friendsOnly) {
+function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFaculty) {
     showLoading('weekend-results');
 
     const satDate = weekend.saturday;
@@ -799,6 +813,16 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly) {
     if (friendsOnly) {
         swaps = swaps.filter(swap => getFriends().friends.includes(swap.candidate));
     }
+
+    // Filter by person type (show residents by default, optionally CRNAs/faculty)
+    swaps = swaps.filter(swap => {
+        const ptype = getPersonType(swap.candidate);
+        if (isResident(swap.candidate)) return true;  // Always show residents
+        if (ptype === 'crna' && showCRNA) return true;
+        if (ptype === 'faculty' && showFaculty) return true;
+        if (ptype === 'fellow') return true;  // Always show fellows
+        return false;
+    });
 
     // Sort: Easy swaps first, then residents before CRNAs, then friends
     const easeOrder = { 'Easy': 0, 'Moderate': 1, 'Hard sell': 2, 'Very hard': 3 };
@@ -935,17 +959,19 @@ function initWhosFreeTab() {
     document.getElementById('btn-free-check').addEventListener('click', () => {
         const date = document.getElementById('free-date').value;
         const friendsOnly = document.getElementById('free-friends-only').checked;
+        const showCRNA = document.getElementById('free-show-crna').checked;
+        const showFaculty = document.getElementById('free-show-faculty').checked;
 
         if (!date) {
             alert('Please select a date');
             return;
         }
 
-        renderWhosFree(date, friendsOnly);
+        renderWhosFree(date, friendsOnly, showCRNA, showFaculty);
     });
 }
 
-function renderWhosFree(date, friendsOnly) {
+function renderWhosFree(date, friendsOnly, showCRNA, showFaculty) {
     showLoading('free-results');
 
     // Get all shifts on this date that make someone unavailable
@@ -956,13 +982,23 @@ function renderWhosFree(date, friendsOnly) {
     });
     const busyNames = new Set(busyShifts.map(s => s.name));
 
-    let allResidents = getAllResidents();
+    let allPeople = getAllResidents();
     if (friendsOnly) {
         const friends = getFriends();
-        allResidents = allResidents.filter(name => friends.friends.includes(name));
+        allPeople = allPeople.filter(name => friends.friends.includes(name));
     }
 
-    const freeResidents = allResidents.filter(name => !busyNames.has(name));
+    // Filter by person type
+    allPeople = allPeople.filter(name => {
+        const ptype = getPersonType(name);
+        if (isResident(name)) return true;  // Always show residents
+        if (ptype === 'crna' && showCRNA) return true;
+        if (ptype === 'faculty' && showFaculty) return true;
+        if (ptype === 'fellow') return true;  // Always show fellows
+        return false;
+    });
+
+    const freeResidents = allPeople.filter(name => !busyNames.has(name));
 
     // Get what each free person is doing that day
     const html = freeResidents.length > 0

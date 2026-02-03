@@ -108,6 +108,8 @@
       <div class="grid">
         <label><input type="checkbox" id="trip-depart-evening"> Departing evening before</label>
         <label><input type="checkbox" id="trip-friends-only"> Friends only</label>
+        <label><input type="checkbox" id="trip-show-crna"> Show CRNAs</label>
+        <label><input type="checkbox" id="trip-show-faculty"> Show Attendings</label>
       </div>
       <button id="btn-trip-search">Find Coverage</button>
 
@@ -130,7 +132,11 @@
         <label>Weeks to search: <span id="weekend-weeks-value">4</span>
           <input type="range" id="weekend-weeks" min="1" max="8" value="4">
         </label>
+      </div>
+      <div class="grid">
         <label><input type="checkbox" id="weekend-friends-only"> Friends only</label>
+        <label><input type="checkbox" id="weekend-show-crna"> Show CRNAs</label>
+        <label><input type="checkbox" id="weekend-show-faculty"> Show Attendings</label>
       </div>
       <button id="btn-weekend-search">Find Weekend Swaps</button>
 
@@ -148,7 +154,11 @@
 
       <div class="grid">
         <label>Date: <input type="date" id="free-date"></label>
+      </div>
+      <div class="grid">
         <label><input type="checkbox" id="free-friends-only"> Friends only</label>
+        <label><input type="checkbox" id="free-show-crna"> Show CRNAs</label>
+        <label><input type="checkbox" id="free-show-faculty"> Show Attendings</label>
       </div>
       <button id="btn-free-check">Check Availability</button>
 
