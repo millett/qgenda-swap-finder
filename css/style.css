@@ -754,12 +754,22 @@ tr.ease-very-hard {
   margin-bottom: 0.5rem;
 }
 
+.trip-swap-card .swap-summary {
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.5rem;
+}
+
 .trip-swap-card .swap-details {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 0.75rem;
   font-size: 0.9rem;
   flex-wrap: wrap;
+}
+
+.trip-swap-card.swap-open .swap-details {
+  display: flex;
 }
 
 .trip-swap-card .swap-give,
@@ -783,6 +793,10 @@ tr.ease-very-hard {
   font-size: 1.1rem;
 }
 
+.trip-swap-card .swap-toggle-btn {
+  margin-top: 0.5rem;
+}
+
 .ease-badge.hard-sell {
   background: #f8d7da;
   color: #721c24;
@@ -790,6 +804,41 @@ tr.ease-very-hard {
 
 .swap-card-hidden {
   display: none;
+}
+
+.section-divider {
+  height: 1px;
+  background: var(--pico-muted-border-color);
+  margin: 1.5rem 0;
+}
+
+.travel-window-card {
+  padding: 0.75rem 1rem;
+  border-left: 4px solid #0d6efd;
+  background: linear-gradient(90deg, rgba(13,110,253,0.08) 0%, transparent 100%);
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.travel-window-title {
+  font-weight: 600;
+}
+
+.travel-window-meta {
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+.travel-window-vacation {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: #2f6f3e;
+}
+
+.sort-note {
+  align-self: center;
+  font-size: 0.85rem;
 }
 
 .expand-swaps-btn {

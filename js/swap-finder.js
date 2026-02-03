@@ -1440,6 +1440,107 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
   };
 }
 
+/**
+ * Find upcoming windows of consecutive days off for travel optimization.
+ *
+ * @param {Array} schedule - Full schedule array
+ * @param {string} myName - Your name
+ * @param {number} lookAheadWeeks - Weeks to search forward
+ * @param {number} minDays - Minimum consecutive days off
+ * @returns {Object} windows + optional data warning
+ */
+function findTravelOptimizerWindows(schedule, myName, lookAheadWeeks = 12, minDays = 3) {
+  const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
+  const myShifts = caSchedule.filter(s => s.name === myName);
+
+  let scheduleStart = null;
+  let scheduleEnd = null;
+  if (myShifts.length > 0) {
+    const dates = myShifts.map(s => parseDate(s.date)).sort((a, b) => a - b);
+    scheduleStart = dates[0];
+    scheduleEnd = dates[dates.length - 1];
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = addDays(today, lookAheadWeeks * 7);
+
+  let dataWarning = null;
+  if (scheduleEnd && endDate > scheduleEnd) {
+    dataWarning = {
+      type: 'incomplete_data',
+      message: `Schedule data for ${myName} only extends through ${formatDate(scheduleEnd)}. Results after this date may be incomplete.`,
+      scheduleEnd: scheduleEnd
+    };
+  }
+
+  const shiftsByDate = {};
+  myShifts.forEach(s => {
+    if (!shiftsByDate[s.date]) shiftsByDate[s.date] = [];
+    shiftsByDate[s.date].push(s.shift);
+  });
+
+  const blockingShifts = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS]);
+  const days = [];
+  let current = new Date(today);
+  while (current <= endDate) {
+    const dateStr = formatDate(current);
+    const shifts = shiftsByDate[dateStr] || [];
+    const shiftSet = new Set(shifts);
+    const hasBlocking = setsIntersect(shiftSet, blockingShifts);
+    const isVacation = shifts.some(s => VACATION_SHIFTS.has(s) || s.toLowerCase().includes('vacation'));
+    days.push({
+      date: new Date(current),
+      dateStr,
+      isOff: !hasBlocking,
+      isVacation,
+    });
+    current = addDays(current, 1);
+  }
+
+  const windows = [];
+  let streakStart = null;
+  let streakDates = [];
+
+  const flushStreak = () => {
+    if (!streakStart) return;
+    if (streakDates.length >= minDays) {
+      const start = streakDates[0].date;
+      const end = streakDates[streakDates.length - 1].date;
+      const vacationDates = streakDates
+        .filter(d => d.isVacation)
+        .map(d => d.dateStr);
+      windows.push({
+        start,
+        end,
+        length: streakDates.length,
+        vacation_dates: vacationDates
+      });
+    }
+    streakStart = null;
+    streakDates = [];
+  };
+
+  for (const day of days) {
+    if (day.isOff) {
+      if (!streakStart) {
+        streakStart = day.date;
+      }
+      streakDates.push(day);
+    } else {
+      flushStreak();
+    }
+  }
+  flushStreak();
+
+  windows.sort((a, b) => {
+    if (b.length !== a.length) return b.length - a.length;
+    return a.start - b.start;
+  });
+
+  return { windows, data_warning: dataWarning };
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -1508,6 +1609,7 @@ window.SwapFinder = {
   findWeekendSwap,
   findTripCoverage,
   findTripSwapOpportunities,
+  findTravelOptimizerWindows,
   findGoldenWeekends,
   getScheduleSummary,
   generateSwapMessage,

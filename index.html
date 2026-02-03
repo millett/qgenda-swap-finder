@@ -149,6 +149,19 @@
       <div id="trip-packages"></div>
       <div id="trip-candidates"></div>
       <div id="trip-swaps"></div>
+      <div class="section-divider"></div>
+      <h3>Travel Optimizer</h3>
+      <p>Find the longest upcoming streaks of days off.</p>
+      <div class="grid">
+        <label>Look ahead weeks: <span id="travel-weeks-value">12</span>
+          <input type="range" id="travel-weeks" min="4" max="26" value="12">
+        </label>
+        <label>Minimum days off: <span id="travel-min-days-value">3</span>
+          <input type="range" id="travel-min-days" min="2" max="14" value="3">
+        </label>
+      </div>
+      <button id="btn-travel-optimize">Find Best Windows</button>
+      <div id="travel-results"></div>
     </section>
 
     <!-- Weekend Swap Tab -->
@@ -169,6 +182,17 @@
       <div class="grid">
         <label><input type="checkbox" id="weekend-friends-only"> Friends only</label>
         <label><input type="checkbox" id="weekend-show-crna"> Show CRNAs</label>
+      </div>
+      <div class="grid">
+        <label>Sort by:
+          <select id="weekend-sort">
+            <option value="ease">Ease</option>
+            <option value="off">Full weekend off</option>
+            <option value="friends">Friends</option>
+            <option value="benefit">Benefit</option>
+          </select>
+        </label>
+        <div class="muted sort-note">Benefit = your weekend burden minus theirs.</div>
       </div>
       <div class="grid">
         <label><input type="checkbox" id="weekend-show-hidden"> Show hidden candidates</label>

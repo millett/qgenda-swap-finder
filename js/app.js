@@ -263,7 +263,7 @@ function toggleHiddenCandidate(featureKey, name, hide) {
 
     if (featureKey === 'weekend' && window.lastWeekendSearch) {
         const p = window.lastWeekendSearch;
-        renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.showFaculty);
+        renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.sortMode || 'ease');
     } else if (featureKey === 'trip') {
         const startDate = document.getElementById('trip-start').value;
         const endDate = document.getElementById('trip-end').value;
@@ -874,6 +874,10 @@ function renderGoldenWeekends(weeksAhead, showAvailable) {
 function initTripPlannerTab() {
     const tripStartInput = document.getElementById('trip-start');
     const tripEndInput = document.getElementById('trip-end');
+    const travelWeeks = document.getElementById('travel-weeks');
+    const travelWeeksValue = document.getElementById('travel-weeks-value');
+    const travelMin = document.getElementById('travel-min-days');
+    const travelMinValue = document.getElementById('travel-min-days-value');
 
     // Default trip start to the next upcoming weekend (Saturday)
     if (tripStartInput && !tripStartInput.value) {
@@ -943,6 +947,26 @@ function initTripPlannerTab() {
                     document.getElementById('trip-show-crna').checked
                 );
             }
+        });
+    }
+
+    if (travelWeeks && travelWeeksValue) {
+        travelWeeks.addEventListener('input', (e) => {
+            travelWeeksValue.textContent = e.target.value;
+        });
+    }
+    if (travelMin && travelMinValue) {
+        travelMin.addEventListener('input', (e) => {
+            travelMinValue.textContent = e.target.value;
+        });
+    }
+
+    const travelBtn = document.getElementById('btn-travel-optimize');
+    if (travelBtn) {
+        travelBtn.addEventListener('click', () => {
+            const weeksAhead = parseInt(travelWeeks?.value || '12');
+            const minDays = parseInt(travelMin?.value || '3');
+            renderTravelOptimizer(weeksAhead, minDays);
         });
     }
 }
@@ -1127,10 +1151,9 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
         return false;
     });
 
-    // Render coverage candidates
-    const residents = filtered.filter(c => c.type === 'resident');
+    // Render coverage candidates (group all non-CRNAs as residents)
+    const residents = filtered.filter(c => c.type !== 'crna');
     const crnas = filtered.filter(c => c.type === 'crna');
-    const others = filtered.filter(c => c.type !== 'resident' && c.type !== 'crna');
 
     let candidatesHtml = '';
 
@@ -1155,7 +1178,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                         ${isFriend ? '<span class="badge friend-badge">Friend</span>' : ''}
                         ${isSamaritan ? '<span class="badge samaritan">😇</span>' : ''}
                         ${c.covers_all ? '<span class="badge covers-all-badge">✓ All</span>' : ''}
-                        <div class="coverage-dates">Free: ${c.free_dates.map(d => formatDateDisplay(parseDate(d)).split(' ')[1]).join(', ')}</div>
+                        <div class="coverage-dates">Free: ${c.free_dates.map(d => formatDateDisplay(parseDate(d))).join(', ')}</div>
                     </div>
                 `;
             });
@@ -1166,9 +1189,6 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
         candidatesHtml = renderCandidates(residents, 'Residents');
         if (crnas.length > 0) {
             candidatesHtml += renderCandidates(crnas, 'CRNAs (harder to get)');
-        }
-        if (others.length > 0) {
-            candidatesHtml += renderCandidates(others, 'Others');
         }
     }
     document.getElementById('trip-candidates').innerHTML = candidatesHtml;
@@ -1183,7 +1203,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             swapsHtml += '<h4>😇 Good Samaritans (No Swap Needed)</h4>';
             swapsHtml += '<div class="trip-samaritans">';
             swapResults.goodSamaritans.forEach(sam => {
-                const dateList = sam.canCoverDates.map(d => formatDateDisplay(parseDate(d)).split(' ')[1]).join(', ');
+                const dateList = sam.canCoverDates.map(d => formatDateDisplay(parseDate(d))).join(', ');
                 swapsHtml += `
                     <div class="samaritan-card">
                         <strong>${sam.name}</strong>
@@ -1216,7 +1236,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             });
 
             if (filteredSwaps.length > 0) {
-                swapsHtml += '<h4>💱 Swap Suggestions</h4>';
+                swapsHtml += '<h4>🔁 Swap Suggestions</h4>';
                 swapsHtml += '<p class="swap-suggestions-hint">Offer to take their shift in exchange for coverage</p>';
                 swapsHtml += '<div class="trip-swap-cards" id="trip-swap-cards-container">';
 
@@ -1235,7 +1255,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                     const escapedName = swap.candidate.replace(/'/g, "\\'");
 
                     swapsHtml += `
-                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass} ${hiddenStyle}">
+                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass} ${hiddenStyle}" data-swap-index="${index}">
                             <div class="swap-header">
                                 <span class="candidate-name">
                                     ${swap.candidate}
@@ -1243,6 +1263,9 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                                     ${swap.isFriend ? '<span class="type-badge friend">Friend</span>' : ''}
                                 </span>
                                 <span class="ease-badge ${easeClass}">${swap.ease}</span>
+                            </div>
+                            <div class="swap-summary">
+                                Swap: ${blockedDateDisplay} ↔ ${theirDateDisplay}
                             </div>
                             <div class="swap-details">
                                 <div class="swap-give">
@@ -1255,6 +1278,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                                     <span class="swap-shift">${blockedDateDisplay} - ${swap.myShift.replace('CA ', '')}</span>
                                 </div>
                             </div>
+                            <button class="secondary swap-toggle-btn" onclick="toggleTripSwapDetails(${index})">Show swap</button>
                             <button class="secondary hide-candidate-btn" onclick="toggleHiddenCandidate('trip', '${escapedName}', ${!isHidden})">${hiddenBtnLabel}</button>
                         </div>
                     `;
@@ -1287,6 +1311,60 @@ function expandTripSwaps() {
     hiddenCards.forEach(card => card.classList.remove('swap-card-hidden'));
     const btn = document.getElementById('expand-swaps-btn');
     if (btn) btn.remove();
+}
+
+function toggleTripSwapDetails(index) {
+    const card = document.querySelector(`.trip-swap-card[data-swap-index="${index}"]`);
+    if (!card) return;
+    card.classList.toggle('swap-open');
+    const btn = card.querySelector('.swap-toggle-btn');
+    if (btn) {
+        btn.textContent = card.classList.contains('swap-open') ? 'Hide swap' : 'Show swap';
+    }
+}
+
+function renderTravelOptimizer(weeksAhead, minDays) {
+    const container = document.getElementById('travel-results');
+    if (!container) return;
+
+    showLoading('travel-results');
+    const result = findTravelOptimizerWindows(SCHEDULE, MY_NAME, weeksAhead, minDays);
+
+    let warningHtml = '';
+    if (result.data_warning) {
+        warningHtml = `
+            <div class="data-warning-banner">
+                <strong>⚠️ INCOMPLETE DATA</strong>
+                <p>${result.data_warning.message}</p>
+            </div>
+        `;
+    }
+
+    if (!result.windows || result.windows.length === 0) {
+        container.innerHTML = warningHtml +
+            '<p class="no-data">No travel windows found for that range.</p>';
+        hideLoading('travel-results');
+        return;
+    }
+
+    const topWindows = result.windows.slice(0, 10);
+    const windowsHtml = topWindows.map(win => {
+        const startLabel = formatDateDisplay(win.start);
+        const endLabel = formatDateDisplay(win.end);
+        const vacationLabel = win.vacation_dates.length > 0
+            ? `Vacation: ${win.vacation_dates.map(d => formatDateDisplay(parseDate(d))).join(', ')}`
+            : '';
+        return `
+            <div class="travel-window-card">
+                <div class="travel-window-title">${startLabel} → ${endLabel}</div>
+                <div class="travel-window-meta">${win.length} consecutive days off</div>
+                ${vacationLabel ? `<div class="travel-window-vacation">🏖️ ${vacationLabel}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = warningHtml + windowsHtml;
+    hideLoading('travel-results');
 }
 
 // Tab 4: Weekend Swap
@@ -1334,6 +1412,7 @@ function getMyWorkingWeekends() {
 function initWeekendSwapTab() {
     const weeksSlider = document.getElementById('weekend-weeks');
     const weeksValue = document.getElementById('weekend-weeks-value');
+    const sortSelect = document.getElementById('weekend-sort');
 
     // Populate dropdown with working weekends
     populateWeekendDropdown();
@@ -1343,6 +1422,18 @@ function initWeekendSwapTab() {
         weeksValue.textContent = e.target.value;
     });
 
+    if (sortSelect) {
+        const savedSort = localStorage.getItem('qgenda_weekend_sort') || 'ease';
+        sortSelect.value = savedSort;
+        sortSelect.addEventListener('change', () => {
+            localStorage.setItem('qgenda_weekend_sort', sortSelect.value);
+            if (window.lastWeekendSearch) {
+                const p = window.lastWeekendSearch;
+                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, sortSelect.value);
+            }
+        });
+    }
+
     // Search button
     document.getElementById('btn-weekend-search').addEventListener('click', () => {
         const select = document.getElementById('weekend-select');
@@ -1350,6 +1441,7 @@ function initWeekendSwapTab() {
         const weeksToSearch = parseInt(weeksSlider.value);
         const friendsOnly = document.getElementById('weekend-friends-only').checked;
         const showCRNA = document.getElementById('weekend-show-crna').checked;
+        const sortMode = sortSelect ? sortSelect.value : 'ease';
 
         if (selectedIdx === '' || !window.myWorkingWeekends || !window.myWorkingWeekends[selectedIdx]) {
             alert('Please select a weekend');
@@ -1357,7 +1449,7 @@ function initWeekendSwapTab() {
         }
 
         const weekend = window.myWorkingWeekends[selectedIdx];
-        renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA);
+        renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, sortMode);
     });
 
     const weekendShowHidden = document.getElementById('weekend-show-hidden');
@@ -1365,7 +1457,7 @@ function initWeekendSwapTab() {
         weekendShowHidden.addEventListener('change', () => {
             if (window.lastWeekendSearch) {
                 const p = window.lastWeekendSearch;
-                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA);
+                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.sortMode || 'ease');
             }
         });
     }
@@ -1376,13 +1468,13 @@ function initWeekendSwapTab() {
             saveHiddenCandidates('qgenda_hidden_weekend', new Set());
             if (window.lastWeekendSearch) {
                 const p = window.lastWeekendSearch;
-                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA);
+                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.sortMode || 'ease');
             }
         });
     }
 }
 
-function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
+function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, sortMode = 'ease') {
     showLoading('weekend-results');
 
     const satDate = weekend.saturday;
@@ -1405,7 +1497,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
     window.currentWeekendSwaps = swaps;
     window.myWeekend = weekend;
     window.myWeekendStr = `${formatDateDisplay(satDate)} - ${formatDateDisplay(sunDate)}`;
-    window.lastWeekendSearch = { weekend, weeksToSearch, friendsOnly, showCRNA };
+    window.lastWeekendSearch = { weekend, weeksToSearch, friendsOnly, showCRNA, sortMode };
 
     // Show my weekend info
     const myTypeIcon = weekend.type === 'night' ? '🌙' : weekend.type === 'day' ? '☀️' : '📅';
@@ -1433,27 +1525,54 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
         swaps = swaps.filter(swap => !hiddenSet.has(swap.candidate));
     }
 
-    // Sort: easiest first, then full weekend off, then friends, then benefit
+    // Sort based on selected mode
     const easeOrder = { 'easy': 0, 'moderate': 1, 'hard sell': 2, 'very hard': 3 };
     const friendsData = getFriends();
     swaps.sort((a, b) => {
-        const easeA = easeOrder[(a.ease || '').trim().toLowerCase()] ?? 99;
-        const easeB = easeOrder[(b.ease || '').trim().toLowerCase()] ?? 99;
-        if (easeA !== easeB) return easeA - easeB;
-
         const aTheirType = (a.their_weekend_type || (a.swap_type.split('↔')[1] || '')).toLowerCase();
         const bTheirType = (b.their_weekend_type || (b.swap_type.split('↔')[1] || '')).toLowerCase();
-        const aOff = aTheirType === 'off' ? 0 : 1;
-        const bOff = bTheirType === 'off' ? 0 : 1;
-        if (aOff !== bOff) return aOff - bOff;
-
-        const friendA = friendsData.friends.includes(a.candidate) ? 0 : 1;
-        const friendB = friendsData.friends.includes(b.candidate) ? 0 : 1;
-        if (friendA !== friendB) return friendA - friendB;
-
         const benefitA = typeof a.benefit === 'number' ? a.benefit : 0;
         const benefitB = typeof b.benefit === 'number' ? b.benefit : 0;
-        return benefitB - benefitA;
+
+        const easeA = easeOrder[(a.ease || '').trim().toLowerCase()] ?? 99;
+        const easeB = easeOrder[(b.ease || '').trim().toLowerCase()] ?? 99;
+        const offA = aTheirType === 'off' ? 0 : 1;
+        const offB = bTheirType === 'off' ? 0 : 1;
+        const friendA = friendsData.friends.includes(a.candidate) ? 0 : 1;
+        const friendB = friendsData.friends.includes(b.candidate) ? 0 : 1;
+
+        const comparators = {
+            ease: [
+                [easeA, easeB],
+                [offA, offB],
+                [friendA, friendB],
+                [-benefitA, -benefitB],
+            ],
+            off: [
+                [offA, offB],
+                [easeA, easeB],
+                [friendA, friendB],
+                [-benefitA, -benefitB],
+            ],
+            friends: [
+                [friendA, friendB],
+                [easeA, easeB],
+                [offA, offB],
+                [-benefitA, -benefitB],
+            ],
+            benefit: [
+                [-benefitA, -benefitB],
+                [easeA, easeB],
+                [offA, offB],
+                [friendA, friendB],
+            ],
+        };
+
+        const order = comparators[sortMode] || comparators.ease;
+        for (const [valA, valB] of order) {
+            if (valA !== valB) return valA - valB;
+        }
+        return 0;
     });
 
     // Update the stored swaps with new order
