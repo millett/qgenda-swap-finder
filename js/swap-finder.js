@@ -34,6 +34,8 @@ const CALL_SHIFTS = new Set([
   'CA COMER Call',
   'CA ICU Call',
   'CA Northshore Call',
+  'CA GOR3',  // 24-hour home call
+  'CA GOR4',  // 24-hour home call
 ]);
 
 // ICU rotations - cannot be swapped (assigned rotations, not tradeable shifts)
@@ -285,6 +287,11 @@ function calculateSwapEase(myType, theirType, prefersNights = new Set(), candida
   // (asking them to give up vacation - still show them, but clearly marked)
   if (setsIntersect(theirShifts, VACATION_SHIFTS)) {
     return 'Very hard';
+  }
+
+  // CV Call is difficult to swap - limited pool of qualified residents
+  if (theirShifts.has('CA CV Call')) {
+    return 'Moderate';
   }
 
   // If they prefer nights and have nights, taking them is actually harder

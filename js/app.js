@@ -985,7 +985,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA, showFa
     // Filter by person type (show residents by default, optionally CRNAs/faculty)
     swaps = swaps.filter(swap => {
         const ptype = getPersonType(swap.candidate);
-        if (isResident(swap.candidate)) return true;  // Always show residents
+        if (isResident(swap.candidate) && getPersonType(swap.candidate) !== 'intern') return true;  // Show residents except interns
         if (ptype === 'crna' && showCRNA) return true;
         if (ptype === 'faculty' && showFaculty) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
