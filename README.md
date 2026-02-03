@@ -1,70 +1,45 @@
 # QGenda Swap Finder
 
-A Streamlit app for finding shift swap candidates for anesthesia residents.
+Static web app for anesthesia residents to find shift swap candidates. Open `index.html` in any browser - no server required.
 
 ## Features
 
-- **My Schedule Dashboard** - View upcoming shifts at a glance
+- **My Schedule** - View upcoming shifts and metrics
 - **Golden Weekends** - Find weekends where you and friends are off
-- **Trip Planner** - Find coverage for vacation trips
-- **Weekend Swap** - Find weekend swap candidates with ease ratings
-- **Who's Free** - Check availability on specific dates
+- **Trip Planner** - Find coverage for vacation dates
+- **Weekend Swap** - Find swap candidates with ease ratings
+- **Who's Free** - Check who's available on specific dates
 - **Friends List** - Manage preferred swap partners
-- **Swap Ledger** - Track who owes whom
+- **Swap Ledger** - Track who owes whom (hidden by default)
 
 ## Quick Start
 
-```bash
-# Install dependencies
-./deploy.sh install
-
-# Run locally
-./deploy.sh run
-```
-
-## Deploy to the Web
-
-### Option 1: Streamlit Cloud (Free, Recommended)
-
-1. Push this folder to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Click "New app"
-4. Connect your GitHub repo
-5. Set main file path to: `app.py`
-6. Click Deploy!
-
-Your app will be live at `https://your-app.streamlit.app`
-
-### Option 2: Share on Local Network
-
-```bash
-./deploy.sh local
-```
-
-Anyone on your WiFi can access the app.
-
-### Option 3: Docker
-
-```bash
-./deploy.sh docker
-docker run -p 8501:8501 qgenda-swap-finder
-```
-
-### Option 4: Railway/Render/Fly.io
-
-Push to GitHub, connect the repo, and set:
-- Start command: `streamlit run app.py --server.port $PORT`
-
-## Usage
-
 1. Export your schedule from QGenda as Excel (.xlsx)
-2. Upload it in the app sidebar
-3. Set your name (as it appears in QGenda)
-4. Use the tabs to find swaps!
+2. Run `python convert-schedule.py schedule.xlsx` to generate schedule data
+3. Open `index.html` in your browser
+4. Select your name from the dropdown
+
+## Updating Schedule
+
+```bash
+python convert-schedule.py schedule.xlsx
+```
+
+This extracts shifts and person types (from Excel row colors) into `js/schedule.js`.
 
 ## Files
 
-- `app.py` - Main Streamlit application
-- `swap_finder.py` - Core swap-finding logic
-- `friends.json` - Your friends list (auto-created)
-- `swap_ledger.json` - Debt tracking (auto-created)
+```
+index.html          - Main app UI
+js/app.js           - UI logic and rendering
+js/swap-finder.js   - Core swap-finding algorithms
+js/schedule.js      - Generated schedule data
+css/style.css       - Styling
+convert-schedule.py - Excel to JS converter
+```
+
+## Person Types
+
+Residents are classified by QGenda row colors:
+- **CA-1** (Purple), **CA-2** (Blue), **CA-3** (Light blue)
+- **Fellow** (Orange), **CRNA** (Yellow), **Faculty** (Grey)

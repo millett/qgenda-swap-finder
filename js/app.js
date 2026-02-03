@@ -111,17 +111,51 @@ function getTypeClass(type) {
 }
 
 /**
- * Get all unique resident names from the schedule (only actual residents)
- * @returns {Array} Sorted array of resident names
+ * Get all unique resident names from the schedule (only actual residents by default)
+ * @param {boolean} includeCRNA - Include CRNAs in the list
+ * @param {boolean} includeFaculty - Include faculty/attendings in the list
+ * @returns {Array} Sorted array of names
  */
-function getAllResidentNames() {
+function getAllResidentNames(includeCRNA = false, includeFaculty = false) {
     const names = new Set();
     SCHEDULE.forEach(shift => {
-        if (shift.name && isResident(shift.name)) {
+        if (!shift.name) return;
+        const ptype = getPersonType(shift.name);
+        if (isResident(shift.name)) {
             names.add(shift.name);
+        } else if (ptype === 'crna' && includeCRNA) {
+            names.add(shift.name);
+        } else if (ptype === 'faculty' && includeFaculty) {
+            names.add(shift.name);
+        } else if (ptype === 'fellow') {
+            names.add(shift.name);  // Always include fellows
         }
     });
     return Array.from(names).sort();
+}
+
+/**
+ * Populate the user selector dropdown based on checkbox state
+ */
+function populateUserSelector() {
+    const select = document.getElementById('my-name-select');
+    const showCRNA = document.getElementById('selector-show-crna').checked;
+    const showFaculty = document.getElementById('selector-show-faculty').checked;
+    const allNames = getAllResidentNames(showCRNA, showFaculty);
+
+    // Remember current selection
+    const currentValue = select.value || MY_NAME;
+
+    select.innerHTML = allNames.map(name =>
+        `<option value="${name}" ${name === currentValue ? 'selected' : ''}>${name}</option>`
+    ).join('');
+
+    // If current selection is no longer in list, select first option
+    if (!allNames.includes(currentValue) && allNames.length > 0) {
+        select.value = allNames[0];
+        MY_NAME = allNames[0];
+        localStorage.setItem('qgenda_my_name', MY_NAME);
+    }
 }
 
 /**
@@ -129,11 +163,15 @@ function getAllResidentNames() {
  */
 function initUserSelector() {
     const select = document.getElementById('my-name-select');
-    const allNames = getAllResidentNames();
+    const showCRNACheckbox = document.getElementById('selector-show-crna');
+    const showFacultyCheckbox = document.getElementById('selector-show-faculty');
 
-    select.innerHTML = allNames.map(name =>
-        `<option value="${name}" ${name === MY_NAME ? 'selected' : ''}>${name}</option>`
-    ).join('');
+    // Initial populate
+    populateUserSelector();
+
+    // Listen for checkbox changes to repopulate dropdown
+    showCRNACheckbox.addEventListener('change', populateUserSelector);
+    showFacultyCheckbox.addEventListener('change', populateUserSelector);
 
     select.addEventListener('change', (e) => {
         MY_NAME = e.target.value;
@@ -503,14 +541,13 @@ function initTripPlannerTab() {
         const departEvening = document.getElementById('trip-depart-evening').checked;
         const friendsOnly = document.getElementById('trip-friends-only').checked;
         const showCRNA = document.getElementById('trip-show-crna').checked;
-        const showFaculty = document.getElementById('trip-show-faculty').checked;
 
         if (!startDate || !endDate) {
             alert('Please select both start and end dates');
             return;
         }
 
-        renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA, showFaculty);
+        renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA);
     });
 }
 
@@ -522,10 +559,15 @@ function initTripPlannerTab() {
  * @returns {Array} Array of candidates sorted by how many dates they can cover
  */
 function findCoverageCandidates(schedule, myName, dates) {
-    const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
+    // Include CA shifts, CRNA shifts, and Fellow shifts in the relevant schedule
+    const relevantSchedule = schedule.filter(s => s.shift && (
+        s.shift.startsWith('CA ') ||
+        s.shift.includes('CRNA') ||
+        s.shift.startsWith('Fellow')
+    ));
 
-    // Get all residents
-    const allResidents = new Set(caSchedule.map(s => s.name));
+    // Get all potential candidates (residents, CRNAs, fellows)
+    const allResidents = new Set(relevantSchedule.map(s => s.name));
     allResidents.delete(myName);
 
     // Unavailable shift types
@@ -538,7 +580,8 @@ function findCoverageCandidates(schedule, myName, dates) {
 
         for (const dateStr of dates) {
             const dateObj = parseDate(dateStr);
-            const theirShifts = getShiftsOnDate(caSchedule, resident, dateObj);
+            // Check all their shifts (not just CA shifts) to determine availability
+            const theirShifts = getShiftsOnDate(schedule, resident, dateObj);
             const shiftTypes = new Set(theirShifts.map(s => s.shift));
 
             // They're free if they have no shifts or only non-blocking shifts
@@ -546,7 +589,7 @@ function findCoverageCandidates(schedule, myName, dates) {
 
             // Also check day before for night call conflicts
             const dayBefore = addDays(dateObj, -1);
-            const dayBeforeShifts = getShiftsOnDate(caSchedule, resident, dayBefore);
+            const dayBeforeShifts = getShiftsOnDate(schedule, resident, dayBefore);
             const hasNightCallDayBefore = dayBeforeShifts.some(s => NIGHT_CALL_SHIFTS.has(s.shift));
 
             if (isFree && !hasNightCallDayBefore) {
@@ -592,7 +635,7 @@ function findCoverageCandidates(schedule, myName, dates) {
     return candidates;
 }
 
-function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA, showFaculty) {
+function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA) {
     showLoading('trip-shifts');
 
     const result = findTripCoverage(SCHEDULE, MY_NAME, startDate, endDate, departEvening);
@@ -676,12 +719,11 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
         filtered = coverageCandidates.filter(c => friendsData.friends.includes(c.name));
     }
 
-    // Filter by person type
+    // Filter by person type (residents and fellows always shown, CRNAs optional)
     filtered = filtered.filter(c => {
         const ptype = getPersonType(c.name);
         if (isResident(c.name)) return true;  // Always show residents
         if (ptype === 'crna' && showCRNA) return true;
-        if (ptype === 'faculty' && showFaculty) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
     });
