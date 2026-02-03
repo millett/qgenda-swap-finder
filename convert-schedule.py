@@ -18,19 +18,28 @@ from openpyxl.styles import PatternFill
 
 # Color mapping for person types (approximate RGB values)
 # Colors can be in ARGB format (00RRGGBB or FFRRGGBB)
+# Verified mappings from user:
+#   CA1 (purple): 009933FF (Koenig)
+#   CA2 (cyan): 0000FFFF (Millett)
+#   CA3 (teal): 0099CCCC (Yeker)
+#   CRNA (light yellow-green): 00FFFF99 (Novelli)
 COLOR_TO_TYPE = {
-    # Purple-ish = CA1 (various formats)
+    # CA1 = Purple (009933FF = violet/purple)
+    '009933FF': 'ca1',
+    'FF9933FF': 'ca1',
     'FF800080': 'ca1',
     '00800080': 'ca1',
     'FF660066': 'ca1',
     'FF993399': 'ca1',
-    'FF9933FF': 'ca1',
-    '009933FF': 'ca1',  # Found in data
     'FFCC99FF': 'ca1',
     'FF7030A0': 'ca1',
     '007030A0': 'ca1',
 
-    # Blue = CA2
+    # CA2 = Cyan/Turquoise (0000FFFF = cyan)
+    '0000FFFF': 'ca2',
+    'FF00FFFF': 'ca2',
+    '00CCFFFF': 'ca2',  # Light cyan - likely CA2
+    'FFCCFFFF': 'ca2',
     'FF0000FF': 'ca2',
     '000000FF': 'ca2',
     'FF0066CC': 'ca2',
@@ -42,7 +51,9 @@ COLOR_TO_TYPE = {
     'FF5B9BD5': 'ca2',
     '005B9BD5': 'ca2',
 
-    # Greyish blue = CA3
+    # CA3 = Teal/Grey-blue (0099CCCC = teal)
+    '0099CCCC': 'ca3',
+    'FF99CCCC': 'ca3',
     'FF808080': 'ca3',
     '00808080': 'ca3',
     'FF8EA9DB': 'ca3',
@@ -64,7 +75,9 @@ COLOR_TO_TYPE = {
     '00ED7D31': 'fellow',
     'FFF4B084': 'fellow',
 
-    # Yellow = CRNA
+    # CRNA = Light yellow-green (00FFFF99)
+    '00FFFF99': 'crna',
+    'FFFFFF99': 'crna',
     'FFFFFF00': 'crna',
     '00FFFF00': 'crna',
     'FFFFCC00': 'crna',
@@ -74,9 +87,16 @@ COLOR_TO_TYPE = {
     'FFFFD966': 'crna',
     '00FFD966': 'crna',
 
-    # Red = might be announcement/other
+    # Red = announcement/other
     'FFFF0000': 'other',
     '00FF0000': 'other',
+
+    # Pink/Salmon = likely faculty or other
+    '00FFCCCC': 'faculty',
+    'FFFFCCCC': 'faculty',
+
+    # Light green = unknown, classify as other for now
+    '0099FF99': 'other',
 }
 
 
