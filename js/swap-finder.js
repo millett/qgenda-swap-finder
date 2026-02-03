@@ -16,10 +16,6 @@ const NIGHT_CALL_SHIFTS = new Set([
   'CA GOR1 Night Call',
   'CA GOR2 Night Call',
   'CA CART Night Call',
-  'CA CV Call',
-  'CA COMER Call',
-  'CA ICU Call',
-  'CA Northshore Call',
 ]);
 
 // Shift categories for swap eligibility
@@ -36,6 +32,7 @@ const CALL_SHIFTS = new Set([
   'CA Northshore Call',
   'CA GOR3',  // 24-hour home call
   'CA GOR4',  // 24-hour home call
+  'CA Jeopardy',
 ]);
 
 // ICU rotations - cannot be swapped (assigned rotations, not tradeable shifts)
@@ -49,6 +46,8 @@ const ICU_SHIFTS = new Set([
 // Shifts that require CA3+ seniority (CA2 and below cannot cover these)
 const SENIOR_ONLY_SHIFTS = new Set([
   'CA Senior Night Call',
+  'CA ACT',
+  'CA Peds ACT',
 ]);
 
 // Vacation shifts - asymmetric handling (hard for them to give up, but I can offer to work)
@@ -65,6 +64,7 @@ const DAY_SHIFTS = new Set([
   'CA OB',
   'CA OB3',
   'CA PEDS',
+  'CA Peds ACT',
   'CA Ortho',
   'CA CTICU',
   'CA SICU',
@@ -82,6 +82,9 @@ const DAY_SHIFTS = new Set([
   'CA APMC',
   'CA APMC 3',
   'CA Research',
+  'CA ACT',
+  'CA ENT',
+  'CA NORA',
 ]);
 
 // Shifts that indicate unavailability
@@ -95,6 +98,7 @@ const UNAVAILABLE_SHIFTS = new Set([
   'CA Interview',
   'CA Meeting',
   'CA half-day/meeting',
+  'CA ACLS',
 ]);
 
 // ============================================================================
@@ -432,7 +436,7 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
     // Skip if they're working or unavailable on my date (can't double-book)
     if (theirShiftOnMyDate.length > 0) {
       const theirShifts = new Set(theirShiftOnMyDate.map(s => s.shift));
-      const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+      const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS]);
       if (setsIntersect(theirShifts, unavail)) {
         continue;
       }
@@ -484,7 +488,7 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
       } else {
         const myShiftTypes = new Set(myShiftsThatDay.map(s => s.shift));
         // Can't take their shift if I'm already working (day or call) or unavailable
-        const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+        const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS]);
         available = !setsIntersect(myShiftTypes, unavail);
       }
 
@@ -812,20 +816,26 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
     const shift = shiftRecord.shift;
     const date = shiftRecord.dateObj;
 
-    // Night calls always block travel
-    let blocksTravel = CALL_SHIFTS.has(shift);
+    // Day, call, and ICU shifts block travel during the trip window
+    let blocksTravel = CALL_SHIFTS.has(shift) || DAY_SHIFTS.has(shift) || ICU_SHIFTS.has(shift);
 
-    // Day before trip: only night calls block
+    // Day before trip: call shifts block if departing the night before
     if (date < start) {
-      blocksTravel = shift.includes('Night');
+      blocksTravel = CALL_SHIFTS.has(shift);
+    }
+
+    let reason = 'Day shift during trip';
+    if (ICU_SHIFTS.has(shift)) {
+      reason = 'ICU rotation during trip';
+    } else if (CALL_SHIFTS.has(shift)) {
+      reason = NIGHT_CALL_SHIFTS.has(shift) ? 'Night call prevents travel' : 'Call shift';
     }
 
     blockingShifts.push({
       date: date,
       shift: shift,
       blocks_travel: blocksTravel,
-      reason: shift.includes('Night') ? 'Night call prevents travel' :
-              (CALL_SHIFTS.has(shift) ? 'Call shift' : 'Day shift during trip')
+      reason: reason
     });
   }
 

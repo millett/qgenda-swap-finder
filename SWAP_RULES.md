@@ -18,10 +18,6 @@ These shifts trigger automatic post-call conflict detection.
 | CA GOR1 Night Call | GOR night call |
 | CA GOR2 Night Call | GOR night call |
 | CA CART Night Call | CART night call |
-| CA CV Call | Cardiac call (limited qualified pool) |
-| CA COMER Call | Comer hospital call |
-| CA ICU Call | ICU overnight |
-| CA Northshore Call | Northshore campus call |
 
 ### Call Shifts (All Types)
 **All call shifts including night calls, day call, and home call.**
@@ -31,6 +27,11 @@ Includes everything in Night Call Shifts, plus:
 | Shift Name | Notes |
 |------------|-------|
 | CA CLI Day Call | Daytime call (doesn't block next day) |
+| CA Jeopardy | Backup call (can be called in) |
+| CA CV Call | Cardiac call (limited qualified pool) |
+| CA COMER Call | Comer hospital call |
+| CA ICU Call | ICU call |
+| CA Northshore Call | Northshore campus call |
 | CA GOR3 | 24-hour paid home call - very desirable |
 | CA GOR4 | 24-hour paid home call - very desirable |
 
@@ -46,6 +47,7 @@ Includes everything in Night Call Shifts, plus:
 | CA OB | OB anesthesia |
 | CA OB3 | OB rotation |
 | CA PEDS | Pediatrics |
+| CA Peds ACT | Pediatrics ACT |
 | CA Ortho | Orthopedics |
 | CA CTICU | CT ICU rotation |
 | CA SICU | Surgical ICU rotation |
@@ -63,6 +65,9 @@ Includes everything in Night Call Shifts, plus:
 | CA APMC | APMC rotation |
 | CA APMC 3 | APMC rotation |
 | CA Research | Research time |
+| CA ACT | ACT day assignment (senior) |
+| CA ENT | ENT day assignment |
+| CA NORA | Non-OR anesthesia day assignment |
 
 ### ICU Rotations (NOT Swappable)
 **Assigned monthly rotations - cannot be traded.**
@@ -82,6 +87,8 @@ Includes everything in Night Call Shifts, plus:
 | Shift Name | Notes |
 |------------|-------|
 | CA Senior Night Call | Only CA3+ can cover |
+| CA ACT | Only CA3+ can cover |
+| CA Peds ACT | Only CA3+ can cover |
 
 > **Important**: CA1 and CA2 residents cannot cover these shifts. The app filters them out based on PERSON_TYPES_DATA.
 
@@ -99,6 +106,7 @@ Includes everything in Night Call Shifts, plus:
 | CA Interview | Interview day |
 | CA Meeting | Meeting/administrative |
 | CA half-day/meeting | Half day for meeting |
+| CA ACLS | Off day |
 
 ---
 
@@ -118,6 +126,7 @@ Includes everything in Night Call Shifts, plus:
 
 ### What CANNOT Be Swapped
 - **ICU Rotations** (CTICU, SICU, ICU Call) - monthly assignments
+- **ICU 3 Elective** - ICU rotation (not eligible for swaps)
 - **Vacation** - generally very hard (shown with "Very hard" ease)
 - **Post-call days** - not real shifts, just markers
 
@@ -142,6 +151,8 @@ If either person has a conflict, the swap is not shown.
 - CA Vacation Week
 - CA Sick
 - CA Excused
+
+> **Note**: Home call shifts (GOR3, GOR4, CV Call, COMER Call, ICU Call, Northshore Call, CLI Day Call) do **not** automatically trigger post-call conflict checks in the app, since post-call day off only applies if you worked late.
 
 ---
 
