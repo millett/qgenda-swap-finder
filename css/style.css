@@ -1,0 +1,565 @@
+/* QGenda Swap Finder - Custom Styles
+ * Minimal styling to complement Pico CSS
+ */
+
+/* ============================================
+   User Selector
+   ============================================ */
+
+.user-selector {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--pico-card-background-color);
+  border-radius: 8px;
+  border-left: 4px solid var(--pico-primary);
+}
+
+.user-selector label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.user-selector select {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* ============================================
+   Tab System
+   ============================================ */
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+nav[role="tablist"] ul {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+nav[role="tablist"] button {
+  white-space: nowrap;
+}
+
+nav[role="tablist"] button.active {
+  background-color: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+}
+
+/* ============================================
+   Swap Cards
+   ============================================ */
+
+.swap-card {
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid;
+  background: var(--pico-card-background-color);
+}
+
+.swap-card.ease-easy {
+  border-left-color: #28a745;
+  background: linear-gradient(90deg, rgba(40,167,69,0.1) 0%, transparent 100%);
+}
+
+.swap-card.ease-moderate {
+  border-left-color: #ffc107;
+  background: linear-gradient(90deg, rgba(255,193,7,0.1) 0%, transparent 100%);
+}
+
+.swap-card.ease-hard {
+  border-left-color: #dc3545;
+  background: linear-gradient(90deg, rgba(220,53,69,0.1) 0%, transparent 100%);
+}
+
+.swap-card.ease-very-hard {
+  border-left-color: #6c757d;
+  background: linear-gradient(90deg, rgba(108,117,125,0.2) 0%, transparent 100%);
+}
+
+.swap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.candidate-name {
+  font-weight: bold;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.type-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-weight: normal;
+}
+
+/* Year level colors matching QGenda */
+.type-badge.type-ca1 {
+  background: #7030A0;  /* Purple */
+  color: white;
+}
+
+.type-badge.type-ca2 {
+  background: #0070C0;  /* Blue */
+  color: white;
+}
+
+.type-badge.type-ca3 {
+  background: #8FAADC;  /* Greyish blue */
+  color: #1a1a1a;
+}
+
+.type-badge.type-fellow {
+  background: #ED7D31;  /* Orange */
+  color: white;
+}
+
+.type-badge.type-crna {
+  background: #FFD966;  /* Yellow */
+  color: #1a1a1a;
+}
+
+.type-badge.type-faculty {
+  background: #6c757d;  /* Grey */
+  color: white;
+}
+
+.type-badge.type-resident {
+  background: #9966FF;  /* Purple (unknown year) */
+  color: white;
+}
+
+.type-badge.friend {
+  background: #28a745;
+  color: white;
+}
+
+.swap-card.is-crna {
+  opacity: 0.8;
+}
+
+.coverage-candidate .badge.friend-badge {
+  background: #28a745;
+}
+
+.coverage-candidate .badge.covers-all-badge {
+  background: #007bff;
+}
+
+.coverage-candidate.covers-all {
+  border-left: 4px solid #007bff;
+}
+
+/* Ease badges */
+.ease-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.ease-badge.easy { background: #d4edda; color: #155724; }
+.ease-badge.moderate { background: #fff3cd; color: #856404; }
+.ease-badge.hard { background: #f8d7da; color: #721c24; }
+.ease-badge.very-hard { background: #6c757d; color: white; }
+
+/* Shift type badges */
+.shift {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  margin: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.shift.night { background: #343a40; color: white; }
+.shift.day { background: #17a2b8; color: white; }
+.shift.off { background: #28a745; color: white; }
+
+/* Shift comparison layout */
+.shift-comparison {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.your-shifts,
+.their-shifts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.your-shifts .label,
+.their-shifts .label {
+  font-size: 0.75rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.25rem;
+}
+
+.arrow {
+  font-size: 1.5rem;
+  color: var(--pico-muted-color);
+}
+
+.their-weekend {
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.5rem;
+}
+
+.select-btn {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.my-weekend-summary {
+  padding: 1rem;
+  background: var(--pico-card-background-color);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--pico-primary);
+}
+
+/* ============================================
+   Ease Level Color Coding (legacy table rows)
+   ============================================ */
+
+tr.ease-easy {
+  background-color: #d4edda;
+}
+
+tr.ease-moderate {
+  background-color: #fff3cd;
+}
+
+tr.ease-hard {
+  background-color: #f8d7da;
+}
+
+tr.ease-very-hard {
+  background-color: #dc3545;
+  color: white;
+}
+
+/* ============================================
+   Shift Type Icons
+   ============================================ */
+
+.shift-icon {
+  margin-right: 0.5rem;
+}
+
+/* ============================================
+   Metrics Cards
+   ============================================ */
+
+.metric-card {
+  text-align: center;
+  padding: 1rem;
+  background: var(--pico-card-background-color);
+  border-radius: var(--pico-border-radius);
+}
+
+.metric-card .value {
+  font-size: 2rem;
+  font-weight: bold;
+}
+
+.metric-card .label {
+  font-size: 0.875rem;
+  color: var(--pico-muted-color);
+}
+
+/* ============================================
+   Friend List Items
+   ============================================ */
+
+.friend-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.friend-item .friend-info {
+  flex: 1;
+}
+
+.friend-item .friend-name {
+  font-weight: bold;
+  margin-bottom: 0.25rem;
+}
+
+.friend-item .friend-badges {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.friend-item .badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.friend-item .night-badge {
+  background: #343a40;
+  color: white;
+}
+
+.friend-item .samaritan-badge {
+  background: #28a745;
+  color: white;
+}
+
+.friend-item .friend-note {
+  color: var(--pico-muted-color);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.friend-item button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* ============================================
+   Golden Weekend Cards
+   ============================================ */
+
+.golden-card {
+  margin-bottom: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 8px;
+  border-left: 4px solid #28a745;
+  background: linear-gradient(90deg, rgba(40,167,69,0.05) 0%, transparent 100%);
+}
+
+.golden-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.golden-date {
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+
+.available-count {
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+  background: var(--pico-card-background-color);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.golden-body {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+  font-size: 0.9rem;
+}
+
+.golden-body p {
+  margin: 0.25rem 0;
+}
+
+.golden-body .muted {
+  color: var(--pico-muted-color);
+  font-style: italic;
+}
+
+/* ============================================
+   Trip Planner
+   ============================================ */
+
+.blocking-shift {
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+  border-left: 4px solid;
+}
+
+.blocking-shift.blocks {
+  border-left-color: #dc3545;
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.blocking-shift.ok {
+  border-left-color: #28a745;
+  background: rgba(40, 167, 69, 0.1);
+}
+
+.blocking-shift small {
+  display: block;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+.success-message {
+  padding: 1rem;
+  background: rgba(40, 167, 69, 0.1);
+  border-left: 4px solid #28a745;
+  border-radius: 4px;
+  color: #155724;
+}
+
+.warning-message {
+  padding: 0.5rem 0;
+  color: #856404;
+  font-weight: bold;
+}
+
+.no-data {
+  padding: 1rem;
+  text-align: center;
+  color: var(--pico-muted-color);
+  font-style: italic;
+}
+
+.package-deal {
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--pico-card-background-color);
+  border-radius: 4px;
+  border-left: 4px solid var(--pico-primary);
+}
+
+/* Coverage Candidates */
+.coverage-candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.coverage-candidate {
+  padding: 0.75rem;
+  background: var(--pico-card-background-color);
+  border-radius: 4px;
+  border: 1px solid var(--pico-muted-border-color);
+}
+
+.coverage-candidate.is-friend {
+  border-left: 4px solid #28a745;
+  background: linear-gradient(90deg, rgba(40,167,69,0.05) 0%, transparent 100%);
+}
+
+.coverage-candidate .badge {
+  display: inline-block;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  background: #17a2b8;
+  color: white;
+  margin-left: 0.25rem;
+}
+
+.coverage-candidate .badge.samaritan {
+  background: #28a745;
+}
+
+/* Year level badges in coverage candidates */
+.coverage-candidate .badge.type-ca1 { background: #7030A0; color: white; }
+.coverage-candidate .badge.type-ca2 { background: #0070C0; color: white; }
+.coverage-candidate .badge.type-ca3 { background: #8FAADC; color: #1a1a1a; }
+.coverage-candidate .badge.type-fellow { background: #ED7D31; color: white; }
+.coverage-candidate .badge.type-crna { background: #FFD966; color: #1a1a1a; }
+.coverage-candidate .badge.type-faculty { background: #6c757d; color: white; }
+
+.coverage-dates {
+  font-size: 0.8rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: var(--pico-muted-color);
+}
+
+.loading::after {
+  content: "...";
+  animation: dots 1s steps(3, end) infinite;
+}
+
+@keyframes dots {
+  0% { content: "."; }
+  33% { content: ".."; }
+  66% { content: "..."; }
+}
+
+/* ============================================
+   Results Table Improvements
+   ============================================ */
+
+table {
+  font-size: 0.875rem;
+}
+
+table td,
+table th {
+  padding: 0.5rem;
+}
+
+/* ============================================
+   Ledger Debt Items
+   ============================================ */
+
+.debt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+
+@media (max-width: 768px) {
+  .metric-card .value {
+    font-size: 1.5rem;
+  }
+
+  table {
+    font-size: 0.75rem;
+  }
+
+  .friend-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}

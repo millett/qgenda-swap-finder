@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QGenda Swap Finder</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>🔄 QGenda Swap Finder</h1>
+      <p>Find optimal shift swaps for anesthesia residents</p>
+      <div class="user-selector">
+        <label>You are:
+          <select id="my-name-select">
+            <option value="">Loading...</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav>
+      <ul role="tablist">
+        <li><button role="tab" data-tab="my-schedule" class="active">My Schedule</button></li>
+        <li><button role="tab" data-tab="golden-weekends">Golden Weekends</button></li>
+        <li><button role="tab" data-tab="trip-planner">Trip Planner</button></li>
+        <li><button role="tab" data-tab="weekend-swap">Weekend Swap</button></li>
+        <li><button role="tab" data-tab="whos-free">Who's Free</button></li>
+        <li><button role="tab" data-tab="friends-list">Friends</button></li>
+        <li><button role="tab" data-tab="swap-ledger">Ledger</button></li>
+      </ul>
+    </nav>
+
+    <!-- Tab Content Sections -->
+
+    <!-- My Schedule Tab -->
+    <section id="my-schedule" class="tab-content active">
+      <h2>My Schedule</h2>
+      <p>Your upcoming shifts at a glance.</p>
+
+      <div class="grid">
+        <label>Days ahead: <span id="days-ahead-value">30</span>
+          <input type="range" id="schedule-days" min="7" max="90" value="30">
+        </label>
+        <button id="btn-refresh-schedule">Refresh</button>
+      </div>
+
+      <!-- Metrics -->
+      <div id="schedule-metrics" class="grid">
+        <article class="metric-card">
+          <div class="label">Next Call</div>
+          <div class="value" id="next-call-date">-</div>
+        </article>
+        <article class="metric-card">
+          <div class="label">Total Calls</div>
+          <div class="value" id="total-calls">-</div>
+        </article>
+        <article class="metric-card">
+          <div class="label">Day Shifts</div>
+          <div class="value" id="day-shifts">-</div>
+        </article>
+        <article class="metric-card">
+          <div class="label">Days Off</div>
+          <div class="value" id="days-off">-</div>
+        </article>
+      </div>
+
+      <!-- Upcoming Shifts -->
+      <h3>Upcoming Shifts</h3>
+      <div id="upcoming-shifts"></div>
+
+      <!-- Weekly Breakdown -->
+      <h3>Weekly Breakdown</h3>
+      <div id="weekly-breakdown"></div>
+    </section>
+
+    <!-- Golden Weekends Tab -->
+    <section id="golden-weekends" class="tab-content">
+      <h2>Golden Weekends</h2>
+      <p>Find weekends where you have both Saturday AND Sunday off.</p>
+
+      <div class="grid">
+        <label>Weeks ahead: <span id="golden-weeks-value">12</span>
+          <input type="range" id="golden-weeks" min="4" max="24" value="12">
+        </label>
+      </div>
+      <div class="grid">
+        <label><input type="checkbox" id="golden-show-available"> Show who's also off</label>
+        <label><input type="checkbox" id="golden-friends-only"> Highlight friends only</label>
+      </div>
+      <button id="btn-golden-search">Find My Golden Weekends</button>
+
+      <div id="golden-results"></div>
+    </section>
+
+    <!-- Trip Planner Tab -->
+    <section id="trip-planner" class="tab-content">
+      <h2>Trip Planner</h2>
+      <p>Find coverage for all shifts during a trip.</p>
+
+      <div class="grid">
+        <label>Trip start: <input type="date" id="trip-start"></label>
+        <label>Trip end: <input type="date" id="trip-end"></label>
+      </div>
+      <div class="grid">
+        <label><input type="checkbox" id="trip-depart-evening"> Departing evening before</label>
+        <label><input type="checkbox" id="trip-friends-only"> Friends only</label>
+      </div>
+      <button id="btn-trip-search">Find Coverage</button>
+
+      <div id="trip-shifts"></div>
+      <div id="trip-packages"></div>
+      <div id="trip-candidates"></div>
+    </section>
+
+    <!-- Weekend Swap Tab -->
+    <section id="weekend-swap" class="tab-content">
+      <h2>Weekend Swap</h2>
+      <p>Find someone to swap an entire weekend with.</p>
+
+      <div class="grid">
+        <label>Your Weekend:
+          <select id="weekend-select">
+            <option value="">Loading weekends...</option>
+          </select>
+        </label>
+        <label>Weeks to search: <span id="weekend-weeks-value">4</span>
+          <input type="range" id="weekend-weeks" min="1" max="8" value="4">
+        </label>
+        <label><input type="checkbox" id="weekend-friends-only"> Friends only</label>
+      </div>
+      <button id="btn-weekend-search">Find Weekend Swaps</button>
+
+      <div id="my-weekend-info"></div>
+      <div id="weekend-results"></div>
+
+      <h3>Generate Message</h3>
+      <textarea id="swap-message" rows="4" placeholder="Click 'Generate Message' on a swap card above..."></textarea>
+    </section>
+
+    <!-- Who's Free Tab -->
+    <section id="whos-free" class="tab-content">
+      <h2>Who's Free</h2>
+      <p>See who is available on a specific date.</p>
+
+      <div class="grid">
+        <label>Date: <input type="date" id="free-date"></label>
+        <label><input type="checkbox" id="free-friends-only"> Friends only</label>
+      </div>
+      <button id="btn-free-check">Check Availability</button>
+
+      <div id="free-results"></div>
+    </section>
+
+    <!-- Friends List Tab -->
+    <section id="friends-list" class="tab-content">
+      <h2>Friends List</h2>
+      <p>Manage your list of preferred swap partners.</p>
+
+      <h3>Current Friends</h3>
+      <div id="friends-current"></div>
+      <p><small>🌙 = prefers night shifts | 😇 = good samaritan (will help without payback)</small></p>
+
+      <h3>Add Friend</h3>
+      <div class="grid">
+        <select id="new-friend-select"><option value="">Select resident...</option></select>
+        <input type="text" id="new-friend-note" placeholder="Note (optional)">
+      </div>
+      <div class="grid">
+        <label><input type="checkbox" id="new-friend-nights"> Prefers nights</label>
+        <label><input type="checkbox" id="new-friend-samaritan"> Good samaritan 😇</label>
+      </div>
+      <button id="btn-add-friend">Add Friend</button>
+    </section>
+
+    <!-- Swap Ledger Tab -->
+    <section id="swap-ledger" class="tab-content">
+      <h2>Swap Ledger</h2>
+      <p>Track who owes whom a swap.</p>
+
+      <div class="grid">
+        <article>
+          <h3>They Owe You</h3>
+          <div id="ledger-owes-me"></div>
+        </article>
+        <article>
+          <h3>You Owe Them</h3>
+          <div id="ledger-i-owe"></div>
+        </article>
+      </div>
+
+      <h3>Add Debt</h3>
+      <div class="grid">
+        <select id="debt-person"><option value="">Select person...</option></select>
+        <fieldset role="group">
+          <label><input type="radio" name="debt-direction" value="owes_me" checked> They owe me</label>
+          <label><input type="radio" name="debt-direction" value="i_owe"> I owe them</label>
+        </fieldset>
+      </div>
+      <div class="grid">
+        <input type="text" id="debt-shift" placeholder="Shift type (optional)">
+        <input type="date" id="debt-date">
+        <input type="text" id="debt-notes" placeholder="Notes (optional)">
+      </div>
+      <button id="btn-add-debt">Add Debt</button>
+    </section>
+
+    <footer>
+      <p>Schedule data loaded: <span id="schedule-info">...</span></p>
+    </footer>
+  </main>
+
+  <script src="js/schedule.js"></script>
+  <script src="js/swap-finder.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
