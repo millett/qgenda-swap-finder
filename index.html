@@ -147,7 +147,16 @@
       <div id="trip-eligibility"></div>
       <div id="trip-shifts"></div>
       <div id="trip-packages"></div>
-      <div id="trip-candidates"></div>
+      <div class="trip-layout">
+        <div id="trip-candidates"></div>
+        <aside id="trip-plan" class="trip-plan">
+          <div class="trip-plan-header">
+            <h3>Swap Plan</h3>
+            <button id="trip-plan-clear" class="secondary">Clear</button>
+          </div>
+          <div id="trip-plan-body"></div>
+        </aside>
+      </div>
       <div id="trip-swaps"></div>
       <div class="section-divider"></div>
       <h3>Travel Optimizer</h3>
@@ -163,6 +172,31 @@
       <button id="btn-travel-optimize">Find Best Windows</button>
       <div id="travel-results"></div>
     </section>
+
+    <!-- Coverage Modal -->
+    <div id="coverage-modal" class="coverage-modal">
+      <div id="coverage-backdrop" class="coverage-backdrop"></div>
+      <div class="coverage-modal-content" role="dialog" aria-modal="true">
+        <button id="coverage-close" class="coverage-close" aria-label="Close">×</button>
+        <div class="coverage-modal-header">
+          <div>
+            <h3 id="coverage-modal-title">Candidate</h3>
+            <div id="coverage-modal-badges" class="coverage-modal-badges"></div>
+          </div>
+          <div id="coverage-modal-counter" class="coverage-modal-counter"></div>
+        </div>
+        <div class="coverage-modal-body">
+          <div id="coverage-modal-free"></div>
+          <div id="coverage-modal-vacation"></div>
+          <div id="coverage-modal-swaps" class="coverage-modal-swaps"></div>
+        </div>
+        <div class="coverage-modal-footer">
+          <button id="coverage-prev" class="secondary">Prev</button>
+          <button id="coverage-next" class="secondary">Next</button>
+          <button id="coverage-hide" class="secondary">Hide</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Weekend Swap Tab -->
     <section id="weekend-swap" class="tab-content">
@@ -283,6 +317,7 @@
   </main>
 
   <script src="js/schedule.js?v=20260203"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
   <script src="js/swap-finder.js?v=20260203"></script>
   <script src="js/app.js?v=20260203"></script>
 </body>

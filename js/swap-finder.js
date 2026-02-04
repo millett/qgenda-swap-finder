@@ -26,6 +26,7 @@ const CALL_SHIFTS = new Set([
   'CA GOR1 Night Call',
   'CA GOR2 Night Call',
   'CA CART Night Call',
+  'CA APS Late',
   'CA GOR1 Day Call',
   'CA GOR2 Day Call',
   'CA CART Day Call',
@@ -60,6 +61,11 @@ const CA1_RESTRICTED_SHIFTS = new Set([
   'CA Northshore Call',
 ]);
 
+// Shifts CRNAs cannot cover
+const CRNA_RESTRICTED_SHIFTS = new Set([
+  'CA CART Night Call',
+]);
+
 // Vacation shifts - asymmetric handling (hard for them to give up, but I can offer to work)
 const VACATION_SHIFTS = new Set([
   'CA Vacation',
@@ -89,6 +95,7 @@ const DAY_SHIFTS = new Set([
   'CA GOR-Block',
   'CA AMB',
   'CA AMB- Block',
+  'CA APS',
   'CA OB',
   'CA OB3',
   'CA PEDS',
@@ -113,6 +120,7 @@ const DAY_SHIFTS = new Set([
   'CA ACT',
   'CA ENT',
   'CA NORA',
+  'CA Admin',
 ]);
 
 // Shifts that indicate unavailability
@@ -158,6 +166,11 @@ function canCoverShift(personName, shift) {
 
   // CA1s cannot cover Northshore assignments
   if (personType === 'ca1' && CA1_RESTRICTED_SHIFTS.has(shift)) {
+    return false;
+  }
+
+  // CRNAs cannot cover certain resident-only calls
+  if (personType === 'crna' && CRNA_RESTRICTED_SHIFTS.has(shift)) {
     return false;
   }
 
@@ -394,10 +407,10 @@ function getWeekendBurden(weekendShifts) {
  * @returns {string} Ease level: 'Easy', 'Moderate', 'Hard sell', or 'Very hard'
  */
 function calculateSwapEase(myType, theirType, prefersNights = new Set(), candidate = null, theirShifts = new Set()) {
-  // If THEY have vacation on their weekend, very hard sell
+  // If THEY have vacation on their weekend, hard sell
   // (asking them to give up vacation - still show them, but clearly marked)
   if (setsIntersect(theirShifts, VACATION_SHIFTS)) {
-    return 'Very hard';
+    return 'Hard sell';
   }
 
   // CV Call is difficult to swap - limited pool of qualified residents
@@ -477,6 +490,7 @@ function calculateSwapEase(myType, theirType, prefersNights = new Set(), candida
  */
 function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
   const { targetDateRange, targetShiftType } = options;
+  const myIsVacation = VACATION_SHIFTS.has(myShift);
 
   // Convert myDate to Date object if it's a string
   const myDateObj = typeof myDate === 'string' ? parseDate(myDate) : myDate;
@@ -500,8 +514,24 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
     if (theirShiftOnMyDate.length > 0) {
       const theirShifts = new Set(theirShiftOnMyDate.map(s => s.shift));
       const unavail = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS]);
-      if (setsIntersect(theirShifts, unavail)) {
+
+      // ICU assignments are never swappable
+      if (setsIntersect(theirShifts, ICU_SHIFTS)) {
         continue;
+      }
+
+      if (myIsVacation) {
+        // Swapping my vacation day: only consider candidates who are working
+        const working = new Set([...CALL_SHIFTS, ...DAY_SHIFTS]);
+        if (!setsIntersect(theirShifts, working)) {
+          continue;
+        }
+      } else {
+        // Allow candidates on vacation (hard sell), but skip other unavailable/work conflicts
+        const hasVacation = setsIntersect(theirShifts, VACATION_SHIFTS);
+        if (setsIntersect(theirShifts, unavail) && !hasVacation) {
+          continue;
+        }
       }
     }
 
@@ -528,6 +558,9 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
       potentialSwaps = potentialSwaps.filter(s =>
         s.shift.toLowerCase().includes(targetShiftType.toLowerCase())
       );
+    } else if (myIsVacation) {
+      // Swapping away vacation: only take their working shifts
+      potentialSwaps = potentialSwaps.filter(s => CALL_SHIFTS.has(s.shift) || DAY_SHIFTS.has(s.shift));
     } else if (CALL_SHIFTS.has(myShift)) {
       // If swapping call, find their call shifts
       potentialSwaps = potentialSwaps.filter(s => CALL_SHIFTS.has(s.shift));
@@ -1339,6 +1372,9 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
       // Skip if they can't cover my shift (e.g., CA2 can't cover Senior Night Call)
       if (!canCoverShift(person, myShift)) continue;
 
+      const theirShiftsOnBlockedDate = getShiftsOnDate(caSchedule, person, blockedDateObj);
+      const vacationOnBlockedDate = theirShiftsOnBlockedDate.some(s => VACATION_SHIFTS.has(s.shift));
+
       // Find their upcoming shifts that I could take in exchange
       let current = addDays(today, 1);  // Start from TOMORROW, not today
       while (current <= endDate) {
@@ -1379,13 +1415,16 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
             // Calculate ease
             const theirShiftType = classifyShift(theirShift);
             const theirShiftSet = new Set([theirShift]);
-            const ease = calculateSwapEase(
+            let ease = calculateSwapEase(
               myShiftType === 'call' ? 'night' : myShiftType === 'day' ? 'day' : 'off',
               theirShiftType === 'call' ? 'night' : theirShiftType === 'day' ? 'day' : 'off',
               prefersNights,
               person,
               theirShiftSet
             );
+            if (vacationOnBlockedDate && ease !== 'Very hard') {
+              ease = 'Hard sell';
+            }
 
             swapSuggestions.push({
               candidate: person,
@@ -1395,7 +1434,8 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
               theirShift: theirShift,
               ease: ease,
               isFriend: friends.friends.includes(person),
-              prefersNights: prefersNights.has(person)
+              prefersNights: prefersNights.has(person),
+              vacationCover: vacationOnBlockedDate
             });
           }
         }
@@ -1586,6 +1626,7 @@ window.SwapFinder = {
   UNAVAILABLE_SHIFTS,
   SENIOR_ONLY_SHIFTS,
   CA1_RESTRICTED_SHIFTS,
+  CRNA_RESTRICTED_SHIFTS,
 
   // Eligibility helpers
   canCoverShift,

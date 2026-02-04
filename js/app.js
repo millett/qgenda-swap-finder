@@ -482,6 +482,193 @@ function renderShiftAudit() {
     `;
 }
 
+// =====================================================================
+// Auto-load schedule from schedule.xlsx via SheetJS (fallback to schedule.js)
+// =====================================================================
+
+const SHIFT_NORMALIZATION = {
+    'GOR 1 Day Call': 'CA GOR1 Day Call',
+    'GOR 2 Day Call': 'CA GOR2 Day Call',
+    'Cart Day Call': 'CA CART Day Call',
+    'APS': 'CA APS',
+    'APS Late': 'CA APS Late',
+};
+
+function normalizeShiftLabel(shift) {
+    return SHIFT_NORMALIZATION[shift] || shift;
+}
+
+function getCellColor(cell) {
+    if (!cell || !cell.s) return null;
+    const candidates = [
+        cell.s.fgColor && cell.s.fgColor.rgb,
+        cell.s.fill && cell.s.fill.fgColor && cell.s.fill.fgColor.rgb,
+        cell.s.fill && cell.s.fill.bgColor && cell.s.fill.bgColor.rgb,
+    ];
+    return candidates.find(Boolean) || null;
+}
+
+function parseDateCellValue(cell) {
+    if (!cell || cell.v == null) return null;
+    if (cell.v instanceof Date && !Number.isNaN(cell.v)) {
+        return cell.v;
+    }
+    if (cell.t === 'n' && typeof cell.v === 'number' && typeof XLSX !== 'undefined') {
+        const parsed = XLSX.SSF.parse_date_code(cell.v);
+        if (parsed) {
+            return new Date(parsed.y, parsed.m - 1, parsed.d);
+        }
+    }
+    const asDate = new Date(cell.v);
+    if (!Number.isNaN(asDate)) return asDate;
+    return null;
+}
+
+function parseQGendaWorkbook(workbook) {
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const range = XLSX.utils.decode_range(sheet['!ref']);
+
+    const dayCols = [0, 2, 4, 6, 8, 10, 12];
+    const currentDates = {};
+    const records = [];
+    const personColors = {};
+    const skipNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Printed'];
+
+    for (let r = range.s.r; r <= range.e.r; r++) {
+        const cell0 = sheet[XLSX.utils.encode_cell({ r, c: 0 })];
+        const cell0Val = cell0 ? cell0.v : null;
+        const isDateRow = cell0Val instanceof Date || (cell0Val && String(cell0Val).includes('202'));
+
+        if (isDateRow) {
+            dayCols.forEach((col, idx) => {
+                const dateCell = sheet[XLSX.utils.encode_cell({ r, c: col })];
+                const dateObj = parseDateCellValue(dateCell);
+                if (dateObj) {
+                    currentDates[idx] = dateObj;
+                }
+            });
+            continue;
+        }
+
+        dayCols.forEach((col, idx) => {
+            const nameCell = sheet[XLSX.utils.encode_cell({ r, c: col })];
+            const shiftCell = sheet[XLSX.utils.encode_cell({ r, c: col + 1 })];
+            if (!nameCell || !shiftCell) return;
+
+            const name = String(nameCell.v || '').trim();
+            let shift = String(shiftCell.v || '').trim();
+            if (!name || !shift) return;
+            if (skipNames.some(s => name.includes(s))) return;
+
+            shift = normalizeShiftLabel(shift);
+
+            const validPrefixes = ['CA ', 'CRNA', 'Faculty', 'Fellow'];
+            if (!validPrefixes.some(p => shift.startsWith(p))) {
+                return;
+            }
+
+            const dateObj = currentDates[idx];
+            if (!dateObj) return;
+
+            records.push({
+                date: formatDate(dateObj),
+                name,
+                shift
+            });
+
+            if (!personColors[name]) {
+                const color = getCellColor(nameCell);
+                if (color) {
+                    personColors[name] = color;
+                }
+            }
+        });
+    }
+
+    return { records, personColors };
+}
+
+function buildPersonTypes(records, personColors) {
+    const shiftsByPerson = {};
+    records.forEach(r => {
+        if (!shiftsByPerson[r.name]) shiftsByPerson[r.name] = new Set();
+        shiftsByPerson[r.name].add(r.shift);
+    });
+
+    const existingTypes = (typeof PERSON_TYPES_DATA !== 'undefined') ? PERSON_TYPES_DATA : {};
+    const personTypes = {};
+
+    Object.entries(shiftsByPerson).forEach(([name, shifts]) => {
+        const shiftArray = [...shifts];
+        const hasCA = shiftArray.some(s => s.startsWith('CA '));
+        const hasCRNA = shiftArray.some(s => s.includes('CRNA'));
+        const hasFaculty = shiftArray.some(s => s.startsWith('Faculty'));
+        const hasFellow = shiftArray.some(s => s.startsWith('Fellow'));
+        const color = personColors[name];
+
+        if (hasFaculty) {
+            personTypes[name] = 'faculty';
+        } else if (hasCRNA) {
+            personTypes[name] = 'crna';
+        } else if (hasFellow) {
+            personTypes[name] = 'fellow';
+        } else if (hasCA) {
+            if (color && existingTypes[name]) {
+                personTypes[name] = existingTypes[name];
+            } else if (existingTypes[name]) {
+                personTypes[name] = existingTypes[name];
+            } else {
+                personTypes[name] = 'resident';
+            }
+        }
+    });
+
+    return personTypes;
+}
+
+function applyScheduleData(records, personTypes, sourceLabel = null) {
+    if (typeof SCHEDULE !== 'undefined') {
+        SCHEDULE.length = 0;
+        records.forEach(r => SCHEDULE.push(r));
+    }
+
+    if (typeof PERSON_TYPES_DATA !== 'undefined') {
+        Object.keys(PERSON_TYPES_DATA).forEach(k => delete PERSON_TYPES_DATA[k]);
+        Object.entries(personTypes).forEach(([name, type]) => {
+            PERSON_TYPES_DATA[name] = type;
+        });
+    }
+
+    populateUserSelector();
+    refreshCurrentTab();
+    renderShiftAudit();
+
+    const dateRange = getScheduleDateRange();
+    const sourceText = sourceLabel ? ` (source: ${sourceLabel})` : '';
+    document.getElementById('schedule-info').textContent =
+        `${SCHEDULE.length} shifts from ${dateRange.start} to ${dateRange.end}${sourceText}`;
+}
+
+async function initScheduleAutoLoad() {
+    if (typeof XLSX === 'undefined' || typeof fetch === 'undefined') return;
+    try {
+        const url = `schedule.xlsx?v=${Date.now()}`;
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Failed to fetch schedule.xlsx (${response.status})`);
+        const data = await response.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
+        const { records, personColors } = parseQGendaWorkbook(workbook);
+        if (!records || records.length === 0) {
+            throw new Error('No schedule rows parsed from schedule.xlsx');
+        }
+        const personTypes = buildPersonTypes(records, personColors);
+        applyScheduleData(records, personTypes, 'schedule.xlsx');
+    } catch (err) {
+        console.warn('schedule.xlsx auto-load failed, using schedule.js fallback.', err);
+    }
+}
+
 // Rotation completion overrides (CA1/CA2)
 function inferRotationCompletion(name) {
     const caSchedule = SCHEDULE.filter(s => s.shift && s.shift.startsWith('CA ') && s.name === name);
@@ -997,6 +1184,8 @@ function findCoverageCandidates(schedule, myName, dates) {
 
     for (const resident of allResidents) {
         const freeDates = [];
+        const vacationDates = [];
+        const freeDetails = {};
 
         for (const dateStr of dates) {
             const dateObj = parseDate(dateStr);
@@ -1019,7 +1208,13 @@ function findCoverageCandidates(schedule, myName, dates) {
             const canCover = myBlockingShift ? canCoverShift(resident, myBlockingShift.shift) : true;
 
             if (isFree && !hasNightCallDayBefore && canCover) {
+                const hasVacation = theirShifts.some(s => VACATION_SHIFTS.has(s.shift));
+                const shiftsLabel = theirShifts.length > 0 ? theirShifts.map(s => s.shift) : ['No assignment listed'];
                 freeDates.push(dateStr);
+                freeDetails[dateStr] = shiftsLabel;
+                if (hasVacation) {
+                    vacationDates.push(dateStr);
+                }
             }
         }
 
@@ -1027,6 +1222,8 @@ function findCoverageCandidates(schedule, myName, dates) {
             candidates.push({
                 name: resident,
                 free_dates: freeDates,
+                free_details: freeDetails,
+                vacation_dates: vacationDates,
                 coverage_count: freeDates.length,
                 covers_all: freeDates.length === dates.length
             });
@@ -1151,6 +1348,60 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
         return false;
     });
 
+    const swapResults = blockedDates.length > 0
+        ? findTripSwapOpportunities(SCHEDULE, MY_NAME, blockedDates, 4)
+        : { goodSamaritans: [], swapSuggestions: [] };
+
+    // Apply hidden filter to coverage candidates
+    if (!showHidden) {
+        filtered = filtered.filter(c => !hiddenSet.has(c.name));
+    }
+
+    // Build swap idea map for modal details
+    const candidateSwapMap = {};
+    swapResults.swapSuggestions.forEach(swap => {
+        if (!candidateSwapMap[swap.candidate]) candidateSwapMap[swap.candidate] = [];
+        candidateSwapMap[swap.candidate].push(swap);
+    });
+
+    // Persist candidate order for modal navigation
+    const easeOrder = { 'easy': 0, 'moderate': 1, 'hard sell': 2, 'very hard': 3 };
+    filtered.sort((a, b) => {
+        const aSwaps = candidateSwapMap[a.name] || [];
+        const bSwaps = candidateSwapMap[b.name] || [];
+        const aSwapCount = aSwaps.length;
+        const bSwapCount = bSwaps.length;
+        if (aSwapCount !== bSwapCount) return bSwapCount - aSwapCount;
+
+        const aBestEase = aSwaps.reduce((min, s) => {
+            const rank = easeOrder[(s.ease || '').trim().toLowerCase()] ?? 99;
+            return Math.min(min, rank);
+        }, 99);
+        const bBestEase = bSwaps.reduce((min, s) => {
+            const rank = easeOrder[(s.ease || '').trim().toLowerCase()] ?? 99;
+            return Math.min(min, rank);
+        }, 99);
+        if (aBestEase !== bBestEase) return aBestEase - bBestEase;
+
+        if (a.covers_all !== b.covers_all) return b.covers_all ? 1 : -1;
+        if (a.coverage_count !== b.coverage_count) return b.coverage_count - a.coverage_count;
+
+        const friendsData = getFriends();
+        const aFriend = friendsData.friends.includes(a.name) ? 0 : 1;
+        const bFriend = friendsData.friends.includes(b.name) ? 0 : 1;
+        if (aFriend !== bFriend) return aFriend - bFriend;
+
+        return a.name.localeCompare(b.name);
+    });
+
+    window.coverageCandidateOrder = filtered.map(c => c.name);
+    window.coverageCandidateMap = filtered.reduce((acc, c) => {
+        acc[c.name] = c;
+        return acc;
+    }, {});
+    window.coverageSwapMap = candidateSwapMap;
+    window.tripBlockedDates = blockedDates;
+
     // Render coverage candidates (group all non-CRNAs as residents)
     const residents = filtered.filter(c => c.type !== 'crna');
     const crnas = filtered.filter(c => c.type === 'crna');
@@ -1171,14 +1422,25 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                 const personType = getPersonType(c.name);
                 const typeLabel = getTypeLabel(personType);
                 const typeClass = getTypeClass(personType);
+                const swapList = candidateSwapMap[c.name] || [];
+                const hasSwaps = swapList.length > 0;
+                const vacationDates = (c.vacation_dates || []).map(d => formatDateDisplay(parseDate(d)));
+                const vacationNote = vacationDates.length > 0
+                    ? `<div class="coverage-vacation">Vacation: ${vacationDates.join(', ')}</div>`
+                    : '';
+                const swapHint = hasSwaps ? `<div class="coverage-swap-hint">Swap ideas: ${swapList.length}</div>` : '<div class="coverage-swap-hint muted">No swap ideas yet</div>';
+                const isHidden = hiddenSet.has(c.name);
+                const hiddenClass = isHidden ? 'hidden-candidate' : '';
                 html += `
-                    <div class="coverage-candidate ${isFriend ? 'is-friend' : ''} ${coversAll}">
+                    <div class="coverage-candidate ${isFriend ? 'is-friend' : ''} ${coversAll} ${hiddenClass} is-clickable" data-name="${c.name}" onclick="openCoverageModal('${c.name.replace(/'/g, "\\'")}')">
                         <strong>${c.name}</strong>
                         ${typeLabel ? `<span class="badge ${typeClass}">${typeLabel}</span>` : ''}
                         ${isFriend ? '<span class="badge friend-badge">Friend</span>' : ''}
                         ${isSamaritan ? '<span class="badge samaritan">😇</span>' : ''}
                         ${c.covers_all ? '<span class="badge covers-all-badge">✓ All</span>' : ''}
+                        ${vacationNote}
                         <div class="coverage-dates">Free: ${c.free_dates.map(d => formatDateDisplay(parseDate(d))).join(', ')}</div>
+                        ${swapHint}
                     </div>
                 `;
             });
@@ -1193,9 +1455,10 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     }
     document.getElementById('trip-candidates').innerHTML = candidatesHtml;
 
+    renderTripSwapPlan();
+
     // Render swap suggestions if there are blocked dates
     if (blockedDates.length > 0) {
-        const swapResults = findTripSwapOpportunities(SCHEDULE, MY_NAME, blockedDates, 4);
         let swapsHtml = '';
 
         // Good Samaritans section
@@ -1255,7 +1518,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                     const escapedName = swap.candidate.replace(/'/g, "\\'");
 
                     swapsHtml += `
-                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass} ${hiddenStyle}" data-swap-index="${index}">
+                        <div class="trip-swap-card ease-${easeClass} ${hiddenClass} ${hiddenStyle} is-clickable" data-swap-index="${index}" onclick="toggleTripSwapDetails(${index})">
                             <div class="swap-header">
                                 <span class="candidate-name">
                                     ${swap.candidate}
@@ -1278,8 +1541,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                                     <span class="swap-shift">${blockedDateDisplay} - ${swap.myShift.replace('CA ', '')}</span>
                                 </div>
                             </div>
-                            <button class="secondary swap-toggle-btn" onclick="toggleTripSwapDetails(${index})">Show swap</button>
-                            <button class="secondary hide-candidate-btn" onclick="toggleHiddenCandidate('trip', '${escapedName}', ${!isHidden})">${hiddenBtnLabel}</button>
+                            <button class="secondary hide-candidate-btn" onclick="event.stopPropagation(); toggleHiddenCandidate('trip', '${escapedName}', ${!isHidden})">${hiddenBtnLabel}</button>
                         </div>
                     `;
                 });
@@ -1317,10 +1579,192 @@ function toggleTripSwapDetails(index) {
     const card = document.querySelector(`.trip-swap-card[data-swap-index="${index}"]`);
     if (!card) return;
     card.classList.toggle('swap-open');
-    const btn = card.querySelector('.swap-toggle-btn');
-    if (btn) {
-        btn.textContent = card.classList.contains('swap-open') ? 'Hide swap' : 'Show swap';
+}
+
+function openCoverageModal(name) {
+    const order = window.coverageCandidateOrder || [];
+    const idx = order.indexOf(name);
+    if (idx === -1) return;
+    window.coverageModalState = { order: [...order], index: idx };
+    renderCoverageModal();
+    const modal = document.getElementById('coverage-modal');
+    if (modal) {
+        modal.classList.add('open');
+        document.body.classList.add('modal-open');
     }
+}
+
+function closeCoverageModal() {
+    const modal = document.getElementById('coverage-modal');
+    if (modal) {
+        modal.classList.remove('open');
+        document.body.classList.remove('modal-open');
+    }
+}
+
+function renderCoverageModal() {
+    const state = window.coverageModalState;
+    if (!state || !state.order || state.order.length === 0) return;
+    const name = state.order[state.index];
+    const candidate = window.coverageCandidateMap?.[name];
+    const swaps = window.coverageSwapMap?.[name] || [];
+    window.coverageModalSwapList = swaps;
+
+    const title = document.getElementById('coverage-modal-title');
+    const badges = document.getElementById('coverage-modal-badges');
+    const free = document.getElementById('coverage-modal-free');
+    const vacation = document.getElementById('coverage-modal-vacation');
+    const swapsEl = document.getElementById('coverage-modal-swaps');
+    const counter = document.getElementById('coverage-modal-counter');
+
+    if (title) title.textContent = name || 'Candidate';
+    if (badges && candidate) {
+        const personType = getPersonType(candidate.name);
+        const typeLabel = getTypeLabel(personType);
+        const typeClass = getTypeClass(personType);
+        const friendsData = getFriends();
+        const isFriend = friendsData.friends.includes(candidate.name);
+        const isSamaritan = friendsData.good_samaritans.includes(candidate.name);
+        badges.innerHTML = `
+            ${typeLabel ? `<span class="badge ${typeClass}">${typeLabel}</span>` : ''}
+            ${isFriend ? '<span class="badge friend-badge">Friend</span>' : ''}
+            ${isSamaritan ? '<span class="badge samaritan">😇</span>' : ''}
+            ${candidate.covers_all ? '<span class="badge covers-all-badge">✓ All</span>' : ''}
+        `;
+    }
+
+    if (counter && state.order.length > 0) {
+        counter.textContent = `${state.index + 1} / ${state.order.length}`;
+    }
+
+    if (free && candidate) {
+        const details = candidate.free_details || {};
+        const dates = candidate.free_dates || [];
+        const lines = dates.map(d => {
+            const label = formatDateDisplay(parseDate(d));
+            const shifts = details[d] || ['OFF'];
+            const shiftLabel = shifts.join(', ');
+            return `<div class="coverage-free-line"><strong>${label}:</strong> ${shiftLabel}</div>`;
+        }).join('');
+        free.innerHTML = `
+            <div class="coverage-free-title">Why they are free on your dates</div>
+            ${lines || '<div class="muted">No free-date details found.</div>'}
+        `;
+    }
+
+    if (vacation && candidate) {
+        const vacationDates = (candidate.vacation_dates || []).map(d => formatDateDisplay(parseDate(d)));
+        vacation.innerHTML = vacationDates.length > 0
+            ? `<div class="coverage-vacation-modal">Vacation: ${vacationDates.join(', ')}</div>`
+            : '';
+    }
+
+    if (swapsEl) {
+        if (swaps.length === 0) {
+            swapsEl.innerHTML = '<div class="muted">No swap ideas in the next few weeks.</div>';
+        } else {
+            const plan = getTripSwapPlan();
+            const lines = swaps.slice(0, 10).map((s, idx) => {
+                const blocked = formatDateDisplay(parseDate(s.blockedDate));
+                const theirs = formatDateDisplay(parseDate(s.theirDate));
+                const selected = plan[s.blockedDate] &&
+                    plan[s.blockedDate].candidate === s.candidate &&
+                    plan[s.blockedDate].theirDate === s.theirDate &&
+                    plan[s.blockedDate].theirShift === s.theirShift;
+                const vacBadge = s.vacationCover ? '<span class="badge vacation-badge">Vacation cover</span>' : '';
+                return `
+                    <div class="coverage-swap-line ${selected ? 'selected' : ''}" onclick="selectCoverageSwap(${idx})">
+                        You work: ${theirs} — ${s.theirShift.replace('CA ', '')}
+                        <span class="swap-arrow">↔</span>
+                        They cover: ${blocked} — ${s.myShift.replace('CA ', '')}
+                        ${vacBadge}
+                    </div>
+                `;
+            }).join('');
+            swapsEl.innerHTML = `
+                <div class="coverage-swaps-title">Swap ideas (${swaps.length}) — tap to add to plan</div>
+                ${lines}
+            `;
+        }
+    }
+}
+
+function navigateCoverageModal(direction) {
+    const state = window.coverageModalState;
+    if (!state || state.order.length === 0) return;
+    const nextIndex = (state.index + direction + state.order.length) % state.order.length;
+    state.index = nextIndex;
+    renderCoverageModal();
+}
+
+function hideCoverageFromModal() {
+    const state = window.coverageModalState;
+    if (!state || state.order.length === 0) return;
+    const name = state.order[state.index];
+    const hidden = getHiddenCandidates('qgenda_hidden_trip');
+    hidden.add(name);
+    saveHiddenCandidates('qgenda_hidden_trip', hidden);
+
+    const card = document.querySelector(`.coverage-candidate[data-name="${name}"]`);
+    if (card) card.remove();
+
+    // Remove any plan entries for this candidate
+    const plan = getTripSwapPlan();
+    Object.keys(plan).forEach(dateStr => {
+        if (plan[dateStr]?.candidate === name) {
+            delete plan[dateStr];
+        }
+    });
+    saveTripSwapPlan(plan);
+    renderTripSwapPlan();
+
+    state.order = state.order.filter(n => n !== name);
+    if (state.order.length === 0) {
+        closeCoverageModal();
+        return;
+    }
+    state.index = Math.min(state.index, state.order.length - 1);
+    renderCoverageModal();
+}
+
+function initCoverageModal() {
+    const modal = document.getElementById('coverage-modal');
+    if (!modal) return;
+
+    const prevBtn = document.getElementById('coverage-prev');
+    const nextBtn = document.getElementById('coverage-next');
+    const hideBtn = document.getElementById('coverage-hide');
+    const closeBtn = document.getElementById('coverage-close');
+    const backdrop = document.getElementById('coverage-backdrop');
+
+    if (prevBtn) prevBtn.addEventListener('click', () => navigateCoverageModal(-1));
+    if (nextBtn) nextBtn.addEventListener('click', () => navigateCoverageModal(1));
+    if (hideBtn) hideBtn.addEventListener('click', hideCoverageFromModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeCoverageModal);
+    if (backdrop) backdrop.addEventListener('click', closeCoverageModal);
+
+    document.addEventListener('keydown', (e) => {
+        if (!modal.classList.contains('open')) return;
+        if (e.key === 'Escape') closeCoverageModal();
+        if (e.key === 'ArrowRight') navigateCoverageModal(1);
+        if (e.key === 'ArrowLeft') navigateCoverageModal(-1);
+    });
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    modal.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+    });
+    modal.addEventListener('touchend', (e) => {
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - touchStartX;
+        const dy = touch.clientY - touchStartY;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+            navigateCoverageModal(dx < 0 ? 1 : -1);
+        }
+    });
 }
 
 function renderTravelOptimizer(weeksAhead, minDays) {
@@ -1365,6 +1809,115 @@ function renderTravelOptimizer(weeksAhead, minDays) {
 
     container.innerHTML = warningHtml + windowsHtml;
     hideLoading('travel-results');
+}
+
+function getTripSwapPlan() {
+    const key = getUserKey('qgenda_trip_swap_plan');
+    const data = localStorage.getItem(key);
+    if (!data) return {};
+    try {
+        return JSON.parse(data);
+    } catch {
+        return {};
+    }
+}
+
+function saveTripSwapPlan(plan) {
+    const key = getUserKey('qgenda_trip_swap_plan');
+    localStorage.setItem(key, JSON.stringify(plan));
+}
+
+function normalizeTripSwapPlan(plan, blockedDates) {
+    const normalized = { ...plan };
+    Object.keys(normalized).forEach(date => {
+        if (!blockedDates.includes(date)) {
+            delete normalized[date];
+        }
+    });
+    return normalized;
+}
+
+function renderTripSwapPlan() {
+    const container = document.getElementById('trip-plan-body');
+    const blockedDates = window.tripBlockedDates || [];
+    if (!container) return;
+
+    let plan = getTripSwapPlan();
+    plan = normalizeTripSwapPlan(plan, blockedDates);
+    saveTripSwapPlan(plan);
+
+    if (blockedDates.length === 0) {
+        container.innerHTML = '<div class="muted">No blocked dates yet.</div>';
+        return;
+    }
+
+    const items = blockedDates.map(dateStr => {
+        const entry = plan[dateStr];
+        const dateLabel = formatDateDisplay(parseDate(dateStr));
+        if (!entry) {
+            return `
+                <div class="trip-plan-item">
+                    <div class="plan-date">${dateLabel}</div>
+                    <div class="plan-swap">No swap selected</div>
+                </div>
+            `;
+        }
+        const theirDateLabel = formatDateDisplay(parseDate(entry.theirDate));
+        return `
+            <div class="trip-plan-item">
+                <div class="plan-date">${dateLabel}</div>
+                <div class="plan-swap">${entry.candidate} covers ${entry.myShift.replace('CA ', '')}</div>
+                <div class="plan-swap">You take ${theirDateLabel} — ${entry.theirShift.replace('CA ', '')}</div>
+                <div class="plan-actions">
+                    <button class="secondary" onclick="clearTripSwap('${dateStr}')">Remove</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = items;
+}
+
+function clearTripSwap(dateStr) {
+    const plan = getTripSwapPlan();
+    if (plan[dateStr]) {
+        delete plan[dateStr];
+        saveTripSwapPlan(plan);
+        renderTripSwapPlan();
+        renderCoverageModal();
+    }
+}
+
+function clearTripSwapPlan() {
+    saveTripSwapPlan({});
+    renderTripSwapPlan();
+    renderCoverageModal();
+}
+
+function selectCoverageSwap(idx) {
+    const swaps = window.coverageModalSwapList || [];
+    const swap = swaps[idx];
+    if (!swap) return;
+    const plan = getTripSwapPlan();
+    const current = plan[swap.blockedDate];
+    const isSame = current &&
+        current.candidate === swap.candidate &&
+        current.theirDate === swap.theirDate &&
+        current.theirShift === swap.theirShift;
+    if (isSame) {
+        delete plan[swap.blockedDate];
+    } else {
+        plan[swap.blockedDate] = {
+            candidate: swap.candidate,
+            blockedDate: swap.blockedDate,
+            myShift: swap.myShift,
+            theirDate: swap.theirDate,
+            theirShift: swap.theirShift,
+        };
+    }
+    saveTripSwapPlan(plan);
+    renderTripSwapPlan();
+    renderCoverageModal();
 }
 
 // Tab 4: Weekend Swap
@@ -1471,6 +2024,11 @@ function initWeekendSwapTab() {
                 renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.sortMode || 'ease');
             }
         });
+    }
+
+    const planClear = document.getElementById('trip-plan-clear');
+    if (planClear) {
+        planClear.addEventListener('click', clearTripSwapPlan);
     }
 }
 
@@ -1965,10 +2523,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initTripPlannerTab();
     bindRotationOverrideHandlers();
     syncRotationOverridesUI();
+    initCoverageModal();
     initWeekendSwapTab();
     initWhosFreeTab();
     initFriendsTab();
     initLedgerTab();
+    initScheduleAutoLoad();
 
     // Update schedule info in footer
     const dateRange = getScheduleDateRange();
