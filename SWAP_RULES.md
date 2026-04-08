@@ -99,6 +99,8 @@ Includes everything in Night Call Shifts, plus:
 
 ### Additional Eligibility Rules
 - **CA1s cannot cover Northshore assignments** (CA Northshore, CA Northshore Neuro, CA Northshore Call)
+- **Missing future schedule coverage is treated as unknown, not free**
+  - If a person is not listed beyond a certain date in the export, the app omits them from availability/swap suggestions for later dates and shows a warning instead of assuming they are off.
 
 ### Vacation/Unavailable Shifts
 **Time off, excused absences, and status markers.**

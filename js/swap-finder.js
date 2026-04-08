@@ -140,6 +140,8 @@ const INFO_ONLY_SHIFTS = new Set([
   'CA No Call Req',
 ]);
 
+const SCHEDULE_RANGE_CACHE = new WeakMap();
+
 // ============================================================================
 // ELIGIBILITY HELPERS
 // ============================================================================
@@ -293,6 +295,61 @@ function getShiftsOnDate(schedule, name, date) {
   );
 }
 
+function getScheduleRanges(schedule) {
+  if (SCHEDULE_RANGE_CACHE.has(schedule)) {
+    return SCHEDULE_RANGE_CACHE.get(schedule);
+  }
+
+  const ranges = new Map();
+  schedule.forEach(entry => {
+    if (!entry.name || !entry.date) return;
+
+    const date = typeof entry.date === 'string' ? parseDate(entry.date) : entry.date;
+    const existing = ranges.get(entry.name);
+    if (!existing) {
+      ranges.set(entry.name, { start: date, end: date });
+      return;
+    }
+
+    if (date < existing.start) existing.start = date;
+    if (date > existing.end) existing.end = date;
+  });
+
+  SCHEDULE_RANGE_CACHE.set(schedule, ranges);
+  return ranges;
+}
+
+function getPersonScheduleRange(schedule, name) {
+  const range = getScheduleRanges(schedule).get(name);
+  if (!range) return null;
+  return {
+    start: new Date(range.start),
+    end: new Date(range.end),
+  };
+}
+
+function getScheduleCoverageInfo(schedule, name, startDate, endDate = null) {
+  const targetStart = typeof startDate === 'string' ? parseDate(startDate) : startDate;
+  const targetEnd = endDate
+    ? (typeof endDate === 'string' ? parseDate(endDate) : endDate)
+    : targetStart;
+  const range = getPersonScheduleRange(schedule, name);
+
+  if (!range) {
+    return { name, hasCoverage: false, kind: 'missing', start: null, end: null, targetStart, targetEnd };
+  }
+
+  if (targetStart < range.start) {
+    return { name, hasCoverage: false, kind: 'before_start', start: range.start, end: range.end, targetStart, targetEnd };
+  }
+
+  if (targetEnd > range.end) {
+    return { name, hasCoverage: false, kind: 'after_end', start: range.start, end: range.end, targetStart, targetEnd };
+  }
+
+  return { name, hasCoverage: true, kind: 'covered', start: range.start, end: range.end, targetStart, targetEnd };
+}
+
 /**
  * Check if two sets have any intersection
  * @param {Set} set1
@@ -325,6 +382,11 @@ function setsIntersect(set1, set2) {
  */
 function hasPostCallConflict(schedule, name, nightCallDate) {
   const postCallDate = addDays(nightCallDate, 1);
+  const postCallCoverage = getScheduleCoverageInfo(schedule, name, postCallDate);
+
+  if (!postCallCoverage.hasCoverage) {
+    return true;
+  }
 
   // Check if person has any shifts the day after
   const postCallShifts = getShiftsOnDate(schedule, name, postCallDate);
@@ -516,6 +578,11 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
   for (const resident of allResidents) {
     const residentShifts = caSchedule.filter(s => s.name === resident);
 
+    const residentCoverageOnMyDate = getScheduleCoverageInfo(caSchedule, resident, myDateObj);
+    if (!residentCoverageOnMyDate.hasCoverage) {
+      continue;
+    }
+
     // Check what they're doing on my_date
     const theirShiftOnMyDate = getShiftsOnDate(caSchedule, resident, myDateObj);
 
@@ -558,6 +625,9 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
 
     for (const swap of potentialSwaps) {
       const swapDate = parseDate(swap.date);
+
+      const myCoverageOnSwapDate = getScheduleCoverageInfo(caSchedule, myName, swapDate);
+      if (!myCoverageOnSwapDate.hasCoverage) continue;
 
       // Skip if I can't cover their shift (seniority check)
       if (!canCoverShift(myName, swap.shift, swapDate)) continue;
@@ -684,6 +754,12 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
 
     // Check each resident's shifts on this weekend
     for (const resident of allResidents) {
+      const residentOwnWeekendCoverage = getScheduleCoverageInfo(caSchedule, resident, saturday, sunday);
+      if (!residentOwnWeekendCoverage.hasCoverage) {
+        coverageWarnings[resident] = coverageWarnings[resident] || residentOwnWeekendCoverage;
+        continue;
+      }
+
       const residentSat = getShiftsOnDate(caSchedule, resident, saturday);
       const residentSun = getShiftsOnDate(caSchedule, resident, sunday);
 
@@ -700,6 +776,12 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
       const theirWeekendType = classifyWeekendType(satShifts, sunShifts);
 
       // Check if they're available on MY weekend
+      const residentCoverageOnMyWeekend = getScheduleCoverageInfo(caSchedule, resident, mySat, mySun);
+      if (!residentCoverageOnMyWeekend.hasCoverage) {
+        coverageWarnings[resident] = coverageWarnings[resident] || residentCoverageOnMyWeekend;
+        continue;
+      }
+
       const theirShiftsMySat = getShiftsOnDate(caSchedule, resident, mySat);
       const theirShiftsMySun = getShiftsOnDate(caSchedule, resident, mySun);
 
@@ -717,6 +799,12 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
       const availableMyWeekend = !setsIntersect(theirShiftsMyWeekend, unavail);
 
       // Am I available on THEIR weekend?
+      const myCoverageOnTheirWeekend = getScheduleCoverageInfo(caSchedule, myName, saturday, sunday);
+      if (!myCoverageOnTheirWeekend.hasCoverage) {
+        selfCoverageWarning = selfCoverageWarning || myCoverageOnTheirWeekend;
+        continue;
+      }
+
       const myShiftsTheirSat = getShiftsOnDate(caSchedule, myName, saturday);
       const myShiftsTheirSun = getShiftsOnDate(caSchedule, myName, sunday);
 
@@ -842,6 +930,8 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
     return (easeOrder[a.ease] || 1) - (easeOrder[b.ease] || 1);
   });
 
+  candidates.coverageWarnings = Object.values(coverageWarnings);
+  candidates.selfCoverageWarning = selfCoverageWarning;
   return candidates;
 }
 
@@ -1055,6 +1145,23 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
   const results = [];
 
   for (const { saturday, sunday } of weekends) {
+    const myCoverage = getScheduleCoverageInfo(caSchedule, myName, saturday, sunday);
+    if (!myCoverage.hasCoverage) {
+      results.push({
+        weekend: `Sat ${formatDateDisplay(saturday).split(' ')[1]} - Sun ${formatDateDisplay(sunday).split(' ')[1]}`,
+        saturday: saturday,
+        sunday: sunday,
+        i_am_off: false,
+        friends_off: [],
+        friends_off_count: 0,
+        all_residents_off: [],
+        all_residents_off_count: 0,
+        unknown_coverage_people: [],
+        self_coverage_warning: myCoverage,
+      });
+      continue;
+    }
+
     // Check if I'm off
     const myShifts = [...getShiftsOnDate(caSchedule, myName, saturday),
                       ...getShiftsOnDate(caSchedule, myName, sunday)];
@@ -1075,11 +1182,18 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
     // Check which residents are off
     const friendsOff = [];
     const residentsOffList = [];
+    const unknownCoveragePeople = [];
 
     const allResidents = new Set(caSchedule.map(s => s.name));
     allResidents.delete(myName);
 
     for (const resident of allResidents) {
+      const residentCoverage = getScheduleCoverageInfo(caSchedule, resident, saturday, sunday);
+      if (!residentCoverage.hasCoverage) {
+        unknownCoveragePeople.push(residentCoverage);
+        continue;
+      }
+
       const theirShifts = [...getShiftsOnDate(caSchedule, resident, saturday),
                            ...getShiftsOnDate(caSchedule, resident, sunday)];
       const theirShiftTypes = new Set(theirShifts.map(s => s.shift));
@@ -1105,6 +1219,8 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
       friends_off_count: friendsOff.length,
       all_residents_off: residentsOffList,
       all_residents_off_count: residentsOffList.length,
+      unknown_coverage_people: unknownCoveragePeople,
+      self_coverage_warning: null,
     });
   }
 
@@ -1293,6 +1409,7 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
   // Get all residents/people who could potentially help
   const allPeople = new Set(caSchedule.map(s => s.name));
   allPeople.delete(myName);
+  const coverageWarnings = {};
 
   // Find who is free on each blocked date
   const freePeopleByDate = {};
@@ -1301,6 +1418,12 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
     freePeopleByDate[dateStr] = [];
 
     for (const person of allPeople) {
+      const coverage = getScheduleCoverageInfo(caSchedule, person, dateObj);
+      if (!coverage.hasCoverage) {
+        coverageWarnings[person] = coverageWarnings[person] || coverage;
+        continue;
+      }
+
       const theirShifts = getShiftsOnDate(caSchedule, person, dateObj);
       const shiftSet = new Set(theirShifts.map(s => s.shift));
 
@@ -1468,7 +1591,8 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
 
   return {
     goodSamaritans,
-    swapSuggestions: limitedSuggestions
+    swapSuggestions: limitedSuggestions,
+    coverageWarnings: Object.values(coverageWarnings)
   };
 }
 
@@ -1520,6 +1644,8 @@ window.SwapFinder = {
   INFO_ONLY_SHIFTS,
   SENIOR_ONLY_SHIFTS,
   CA1_RESTRICTED_SHIFTS,
+  getPersonScheduleRange,
+  getScheduleCoverageInfo,
 
   // Eligibility helpers
   canCoverShift,

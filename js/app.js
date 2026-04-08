@@ -502,11 +502,62 @@ function filterByFriends(candidates) {
 
 function formatLastName(name) {
     if (!name) return '';
-    if (name.includes(', ')) {
-        return name.split(', ')[0];
+    const cleanedName = name.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (cleanedName.includes(', ')) {
+        return cleanedName.split(', ')[0];
     }
-    const parts = name.trim().split(' ');
-    return parts.length > 1 ? parts[parts.length - 1] : name;
+    const parts = cleanedName.split(' ');
+    return parts.length > 1 ? parts[parts.length - 1] : cleanedName;
+}
+
+function dedupeCoverageWarnings(...warningLists) {
+    const merged = warningLists.flat().filter(Boolean);
+    const byName = new Map();
+
+    merged.forEach(warning => {
+        if (warning?.name && !byName.has(warning.name)) {
+            byName.set(warning.name, warning);
+        }
+    });
+
+    return Array.from(byName.values()).sort((a, b) =>
+        formatLastName(a.name).localeCompare(formatLastName(b.name))
+    );
+}
+
+function getCoverageWarningMessage(warning) {
+    if (!warning) return '';
+
+    if (warning.kind === 'after_end' && warning.end) {
+        return `Not listed beyond ${formatDateDisplay(warning.end).split(' ')[1]} on the schedule.`;
+    }
+
+    if (warning.kind === 'before_start' && warning.start) {
+        return `Not listed before ${formatDateDisplay(warning.start).split(' ')[1]} on the schedule.`;
+    }
+
+    return 'Not listed in the current schedule export.';
+}
+
+function buildCoverageWarningHtml(warnings, title) {
+    const uniqueWarnings = dedupeCoverageWarnings(warnings);
+    if (uniqueWarnings.length === 0) return '';
+
+    const visibleWarnings = uniqueWarnings.slice(0, 8);
+    const rows = visibleWarnings.map(warning =>
+        `<li><strong>${formatLastName(warning.name)}</strong>: ${getCoverageWarningMessage(warning)}</li>`
+    ).join('');
+    const remainingCount = uniqueWarnings.length - visibleWarnings.length;
+    const moreRow = remainingCount > 0
+        ? `<li><strong>And ${remainingCount} more</strong>: also omitted for missing schedule coverage.</li>`
+        : '';
+
+    return `
+        <div class="data-warning-banner">
+            <strong>⚠️ ${title}</strong>
+            <ul class="shift-audit-list">${rows}${moreRow}</ul>
+        </div>
+    `;
 }
 
 function renderTable(containerId, columns, data) {
@@ -930,13 +981,20 @@ function renderGoldenWeekends(weeksAhead, showAvailable) {
     showLoading('golden-results');
 
     const weekends = findGoldenWeekends(SCHEDULE, MY_NAME, weeksAhead);
+    const selfCoverageWarnings = weekends
+        .map(weekend => weekend.self_coverage_warning)
+        .filter(Boolean);
 
     // Only show weekends where I'm off (that's the whole point of golden weekends)
     const myGoldenWeekends = weekends.filter(w => w.i_am_off);
+    const coverageWarningHtml = buildCoverageWarningHtml(
+        selfCoverageWarnings,
+        'Some later weekends were not evaluated because your schedule does not extend that far.'
+    );
 
     if (myGoldenWeekends.length === 0) {
         document.getElementById('golden-results').innerHTML =
-            '<p class="no-data">😢 No golden weekends found in the next ' + weeksAhead + ' weeks</p>';
+            coverageWarningHtml + '<p class="no-data">😢 No golden weekends found in the next ' + weeksAhead + ' weeks</p>';
         return;
     }
 
@@ -966,6 +1024,14 @@ function renderGoldenWeekends(weeksAhead, showAvailable) {
             if (availablePeople.length === 0) {
                 availableHtml = '<p class="muted">No one else is off this weekend</p>';
             }
+            if ((weekend.unknown_coverage_people || []).length > 0) {
+                const hiddenNames = weekend.unknown_coverage_people
+                    .slice(0, 3)
+                    .map(warning => formatLastName(warning.name))
+                    .join(', ');
+                const hiddenCount = weekend.unknown_coverage_people.length;
+                availableHtml += `<p class="muted">${hiddenCount} ${hiddenCount === 1 ? 'person was' : 'people were'} not counted because their schedule does not extend through this weekend${hiddenNames ? `: ${hiddenNames}${hiddenCount > 3 ? '...' : ''}` : ''}.</p>`;
+            }
         }
 
         return `
@@ -979,6 +1045,7 @@ function renderGoldenWeekends(weeksAhead, showAvailable) {
     `}).join('');
 
     document.getElementById('golden-results').innerHTML = `
+        ${coverageWarningHtml}
         <p class="success-message">🎉 Found ${myGoldenWeekends.length} golden weekend${myGoldenWeekends.length > 1 ? 's' : ''}!</p>
         ${html}
     `;
@@ -1085,12 +1152,19 @@ function findCoverageCandidates(schedule, myName, dates) {
     const unavailableShifts = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS, ...DAY_SHIFTS]);
 
     const candidates = [];
+    const coverageWarnings = {};
 
     for (const resident of allResidents) {
         const freeDates = [];
 
         for (const dateStr of dates) {
             const dateObj = parseDate(dateStr);
+            const coverage = getScheduleCoverageInfo(schedule, resident, dateObj);
+            if (!coverage.hasCoverage) {
+                coverageWarnings[resident] = coverageWarnings[resident] || coverage;
+                continue;
+            }
+
             // Check all their shifts (not just CA shifts) to determine availability
             const theirShifts = getShiftsOnDate(schedule, resident, dateObj);
             const shiftTypes = new Set(theirShifts.map(s => s.shift));
@@ -1107,7 +1181,7 @@ function findCoverageCandidates(schedule, myName, dates) {
             const myShiftsOnDate = getShiftsOnDate(schedule, myName, dateObj);
             const POST_CALL_SHIFTS = new Set(['CA Post Call', 'CA Home Post Call']);
             const myBlockingShift = myShiftsOnDate.find(s => !POST_CALL_SHIFTS.has(s.shift));
-            const canCover = myBlockingShift ? canCoverShift(resident, myBlockingShift.shift) : true;
+            const canCover = myBlockingShift ? canCoverShift(resident, myBlockingShift.shift, dateObj) : true;
 
             if (isFree && !hasNightCallDayBefore && canCover) {
                 freeDates.push(dateStr);
@@ -1149,6 +1223,7 @@ function findCoverageCandidates(schedule, myName, dates) {
         c.type = getPersonType(c.name, c.free_dates[0]);
     });
 
+    candidates.coverageWarnings = Object.values(coverageWarnings);
     return candidates;
 }
 
@@ -1224,6 +1299,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     // Package Deals removed - Swap Suggestions are more useful and actionable
     document.getElementById('trip-packages').innerHTML = '';
     const coverageCandidates = findCoverageCandidates(SCHEDULE, MY_NAME, blockedDates);
+    const tripCoverageWarnings = dedupeCoverageWarnings(coverageCandidates.coverageWarnings || []);
 
     let filtered = coverageCandidates;
     if (friendsOnly) {
@@ -1287,7 +1363,11 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             candidatesHtml += renderCandidates(others, 'Others');
         }
     }
-    document.getElementById('trip-candidates').innerHTML = candidatesHtml;
+    document.getElementById('trip-candidates').innerHTML =
+        buildCoverageWarningHtml(
+            tripCoverageWarnings,
+            'Some people were omitted because their schedule does not extend through one or more blocked dates.'
+        ) + candidatesHtml;
 
     // Render swap suggestions if there are blocked dates
     if (blockedDates.length > 0) {
@@ -1513,6 +1593,13 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
     }
 
     let swaps = findWeekendSwap(SCHEDULE, MY_NAME, [satDate, sunDate], weeksToSearch, weeksToSearch);
+    const weekendCoverageWarningHtml = buildCoverageWarningHtml(
+        dedupeCoverageWarnings(
+            swaps.coverageWarnings || [],
+            swaps.selfCoverageWarning ? [swaps.selfCoverageWarning] : []
+        ),
+        'Some people were omitted because the schedule does not extend through one of the weekends being compared.'
+    );
 
     const showHidden = document.getElementById('weekend-show-hidden')?.checked || false;
     const hiddenSet = getHiddenCandidates('qgenda_hidden_weekend');
@@ -1581,7 +1668,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
     window.currentWeekendSwaps = swaps;
 
     if (swaps.length === 0) {
-        document.getElementById('weekend-results').innerHTML = '<p class="no-data">No swap candidates found</p>';
+        document.getElementById('weekend-results').innerHTML = weekendCoverageWarningHtml + '<p class="no-data">No swap candidates found</p>';
         hideLoading('weekend-results');
         return;
     }
@@ -1687,7 +1774,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
         `;
     }).join('');
 
-    document.getElementById('weekend-results').innerHTML = html;
+    document.getElementById('weekend-results').innerHTML = weekendCoverageWarningHtml + html;
     hideLoading('weekend-results');
 }
 
@@ -1738,6 +1825,7 @@ function initWhosFreeTab() {
 
 function renderWhosFree(date, friendsOnly, showCRNA) {
     showLoading('free-results');
+    const targetDate = parseDate(date);
 
     // Get all shifts on this date that make someone unavailable
     const busyShifts = SCHEDULE.filter(s => {
@@ -1765,18 +1853,32 @@ function renderWhosFree(date, friendsOnly, showCRNA) {
         return false;
     });
 
-    const freeResidents = allPeople.filter(name => !busyNames.has(name));
+    const freeCoverageWarnings = [];
+    const freeResidents = allPeople.filter(name => {
+        if (busyNames.has(name)) return false;
+
+        const coverage = getScheduleCoverageInfo(SCHEDULE, name, targetDate);
+        if (!coverage.hasCoverage) {
+            freeCoverageWarnings.push(coverage);
+            return false;
+        }
+
+        return true;
+    });
 
     // Get what each free person is doing that day
-    const html = freeResidents.length > 0
+    const html = buildCoverageWarningHtml(
+        freeCoverageWarnings,
+        'Some people were not counted as free because their schedule does not extend to this date.'
+    ) + (freeResidents.length > 0
         ? freeResidents.map(name => {
-            const theirShifts = getShiftsOnDate(SCHEDULE, name, parseDate(date));
+            const theirShifts = getShiftsOnDate(SCHEDULE, name, targetDate);
             const shifts = theirShifts.length > 0
                 ? theirShifts.map(s => s.shift).join(', ')
                 : 'OFF';
             return `<div class="free-resident"><strong>${name}</strong>: ${shifts}</div>`;
         }).join('')
-        : '<p class="no-data">No available residents found on this date</p>';
+        : '<p class="no-data">No available residents found on this date</p>');
 
     document.getElementById('free-results').innerHTML = html;
     hideLoading('free-results');
