@@ -139,11 +139,13 @@ const UNAVAILABLE_SHIFTS = new Set([
  *
  * @param {string} personName - Name of the person
  * @param {string} shift - Shift name to check
+ * @param {string|Date|null} onDate - Date the coverage would happen
  * @returns {boolean} True if eligible to cover the shift
  */
-function canCoverShift(personName, shift) {
-  // Get person type from schedule.js data
-  const personType = (typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown';
+function canCoverShift(personName, shift, onDate = null) {
+  const personType = typeof getPersonType === 'function'
+    ? getPersonType(personName, onDate)
+    : ((typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown');
 
   // Interns cannot cover ANY call shifts
   if (personType === 'intern' && CALL_SHIFTS.has(shift)) {
@@ -167,9 +169,13 @@ function canCoverShift(personName, shift) {
 /**
  * Get a person's seniority type.
  * @param {string} personName
+ * @param {string|Date|null} onDate
  * @returns {string}
  */
-function getPersonSeniority(personName) {
+function getPersonSeniority(personName, onDate = null) {
+  if (typeof getPersonType === 'function') {
+    return getPersonType(personName, onDate);
+  }
   return (typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown';
 }
 
@@ -537,10 +543,10 @@ function findSwapCandidates(schedule, myName, myDate, myShift, options = {}) {
       const swapDate = parseDate(swap.date);
 
       // Skip if I can't cover their shift (seniority check)
-      if (!canCoverShift(myName, swap.shift)) continue;
+      if (!canCoverShift(myName, swap.shift, swapDate)) continue;
 
       // Skip if they can't cover my shift (seniority check)
-      if (!canCoverShift(resident, myShift)) continue;
+      if (!canCoverShift(resident, myShift, myDateObj)) continue;
 
       // Check if I'm available on their date
       const myShiftsThatDay = getShiftsOnDate(caSchedule, myName, swapDate);
@@ -755,15 +761,22 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
         }
 
         // Check seniority eligibility for the swap
-        // Can I cover their shifts?
-        const iCanCoverTheirs = [...theirWeekendShifts].every(s => canCoverShift(myName, s));
+        // Can I cover every shift on their weekend on the actual dates involved?
+        const theirWeekendAssignments = [
+          ...residentSat.map(s => ({ shift: s.shift, date: saturday })),
+          ...residentSun.map(s => ({ shift: s.shift, date: sunday })),
+        ];
+        const iCanCoverTheirs = theirWeekendAssignments.every(s => canCoverShift(myName, s.shift, s.date));
         if (!iCanCoverTheirs) {
           continue;
         }
 
-        // Can they cover my shifts?
-        const myWeekendShiftSet = new Set([...mySatShiftSet, ...mySunShiftSet]);
-        const theyCanCoverMine = [...myWeekendShiftSet].every(s => canCoverShift(resident, s));
+        // Can they cover every shift on my weekend on the actual dates involved?
+        const myWeekendAssignments = [
+          ...mySatShifts.map(s => ({ shift: s.shift, date: mySat })),
+          ...mySunShifts.map(s => ({ shift: s.shift, date: mySun })),
+        ];
+        const theyCanCoverMine = myWeekendAssignments.every(s => canCoverShift(resident, s.shift, s.date));
         if (!theyCanCoverMine) {
           continue;
         }
@@ -1337,7 +1350,7 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
       if (goodSamaritanSet.has(person)) continue;
 
       // Skip if they can't cover my shift (e.g., CA2 can't cover Senior Night Call)
-      if (!canCoverShift(person, myShift)) continue;
+      if (!canCoverShift(person, myShift, blockedDateObj)) continue;
 
       // Find their upcoming shifts that I could take in exchange
       let current = addDays(today, 1);  // Start from TOMORROW, not today
@@ -1352,7 +1365,7 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
           if (!CALL_SHIFTS.has(theirShift) && !DAY_SHIFTS.has(theirShift)) continue;
 
           // Skip shifts I'm not senior enough to cover (e.g., CA2 can't cover Senior Night Call)
-          if (!canCoverShift(myName, theirShift)) continue;
+          if (!canCoverShift(myName, theirShift, current)) continue;
 
           // Check if I'm available on their shift date
           const myShiftsOnTheirDate = getShiftsOnDate(caSchedule, myName, current);

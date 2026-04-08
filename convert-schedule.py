@@ -9,6 +9,7 @@ If no input file is specified, defaults to schedule.xlsx in the same directory.
 """
 
 import sys
+import re
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -57,6 +58,15 @@ SHIFT_NORMALIZATION = {
     'Cart Day Call': 'CA CART Day Call',
 }
 
+SHIFT_PREFIXES = ('CA ', 'CRNA', 'Faculty', 'Fellow')
+SHIFT_KEYWORDS = (
+    'call', 'post', 'or', 'icu', 'pain', 'late', 'day', 'night', 'weekend',
+    'home', 'sick', 'vacation', 'admin', 'coordinator', 'per diem', 'swing',
+    'burn', 'students', 'clinic', 'lab', 'comer', 'ob', 'cardiac', 'other',
+    'pre call', 'post call', 'jeopardy', 'fmla'
+)
+DAY_COLUMN_PAIRS = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11), (12, 13)]
+
 
 def get_cell_color(cell):
     """Extract the background color from a cell."""
@@ -79,6 +89,96 @@ def get_year_level_from_color(color_rgb):
     return COLOR_TO_YEAR.get(color_rgb)
 
 
+def score_shift_text(text: str) -> int:
+    """Heuristic score for whether a cell contains a shift label."""
+    if not text:
+        return 0
+
+    lowered = text.lower()
+    score = 0
+
+    if text.startswith(SHIFT_PREFIXES):
+        score += 8
+    if any(keyword in lowered for keyword in SHIFT_KEYWORDS):
+        score += 3
+    if re.search(r'\d', text):
+        score += 1
+    if ' ' in text:
+        score += 1
+    if ',' in text:
+        score -= 1
+
+    return score
+
+
+def score_name_text(text: str) -> int:
+    """Heuristic score for whether a cell contains a staff name."""
+    if not text:
+        return 0
+
+    lowered = text.lower()
+    score = 0
+
+    if any(keyword in lowered for keyword in SHIFT_KEYWORDS) or text.startswith(SHIFT_PREFIXES):
+        score -= 5
+    if ',' in text:
+        score += 3
+    if re.fullmatch(r"[A-Za-z .'-]+(?: \(\d+\))?", text):
+        score += 2
+    if text.isupper():
+        score += 1
+    if ' ' not in text:
+        score += 1
+
+    return score
+
+
+def detect_column_orientation(df: pd.DataFrame) -> tuple[int, int]:
+    """Detect whether each day pair is name/shift or shift/name."""
+    current_dates = {}
+    name_shift_score = 0
+    shift_name_score = 0
+    samples = 0
+
+    for _, row in df.iterrows():
+        try:
+            if pd.notna(row[0]) and '202' in str(row[0]):
+                for day_idx, col in enumerate([0, 2, 4, 6, 8, 10, 12]):
+                    if pd.notna(row[col]):
+                        try:
+                            current_dates[day_idx] = pd.to_datetime(row[col])
+                        except:
+                            pass
+                continue
+        except:
+            pass
+
+        for day_idx, (first_col, second_col) in enumerate(DAY_COLUMN_PAIRS):
+            if day_idx not in current_dates:
+                continue
+            if pd.isna(row[first_col]) or pd.isna(row[second_col]):
+                continue
+
+            first_text = str(row[first_col]).strip()
+            second_text = str(row[second_col]).strip()
+            if not first_text or not second_text:
+                continue
+
+            name_shift_score += score_name_text(first_text) + score_shift_text(second_text)
+            shift_name_score += score_shift_text(first_text) + score_name_text(second_text)
+            samples += 1
+
+            if samples >= 250:
+                break
+
+        if samples >= 250:
+            break
+
+    if shift_name_score > name_shift_score:
+        return 1, 0
+    return 0, 1
+
+
 def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
     """Parse QGenda Excel export into a clean DataFrame and extract person colors."""
     # Load workbook with openpyxl to get colors
@@ -91,6 +191,7 @@ def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
     records = []
     current_dates = {}
     person_colors = {}  # name -> color RGB
+    name_offset, shift_offset = detect_column_orientation(df)
 
     for idx, row in df.iterrows():
         excel_row = idx + 1  # Excel rows are 1-indexed
@@ -109,7 +210,9 @@ def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
             pass
 
         # Process data rows
-        for day_idx, (name_col, shift_col) in enumerate([(0,1), (2,3), (4,5), (6,7), (8,9), (10,11), (12,13)]):
+        for day_idx, (first_col, second_col) in enumerate(DAY_COLUMN_PAIRS):
+            name_col = first_col + name_offset
+            shift_col = first_col + shift_offset
             if day_idx in current_dates and pd.notna(row[name_col]) and pd.notna(row[shift_col]):
                 name = str(row[name_col]).strip()
                 shift = str(row[shift_col]).strip()

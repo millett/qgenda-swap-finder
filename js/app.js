@@ -4,7 +4,16 @@
 let MY_NAME = localStorage.getItem('qgenda_my_name') || "Millett, Matthew";
 
 // Person types are now loaded from PERSON_TYPES_DATA in schedule.js (extracted from Excel colors)
-// Fallback classification for people not in the color data
+// Fallback classification for people not in the color data.
+// Academic-year promotions are applied dynamically based on the date being viewed.
+
+const ACADEMIC_YEAR_PROMOTION_MONTH = 6; // July (0-indexed)
+const ACADEMIC_YEAR_PROMOTION_DAY = 1;
+const PERSON_TYPE_OVERRIDES = {
+    "JEFFREY": [
+        { effectiveDate: "2026-07-01", type: "faculty" }
+    ]
+};
 
 /**
  * Get all person types, using color data from Excel if available
@@ -51,23 +60,82 @@ function getPersonTypes() {
     return types;
 }
 
+function coerceDateValue(value) {
+    if (!value) return new Date();
+
+    if (value instanceof Date) {
+        return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    }
+
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && typeof parseDate === 'function') {
+        return parseDate(value);
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return new Date();
+    }
+
+    return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function getOverrideType(name, onDate) {
+    const overrides = PERSON_TYPE_OVERRIDES[name] || [];
+    const date = coerceDateValue(onDate);
+
+    for (const override of overrides) {
+        const effectiveDate = coerceDateValue(override.effectiveDate);
+        if (date >= effectiveDate) {
+            return override.type;
+        }
+    }
+
+    return null;
+}
+
+function applyAcademicPromotion(baseType, onDate) {
+    const date = coerceDateValue(onDate);
+    const promotionDate = new Date(date.getFullYear(), ACADEMIC_YEAR_PROMOTION_MONTH, ACADEMIC_YEAR_PROMOTION_DAY);
+
+    if (date < promotionDate) {
+        return baseType;
+    }
+
+    const promotions = {
+        'intern': 'ca1',
+        'ca1': 'ca2',
+        'ca2': 'ca3',
+    };
+
+    return promotions[baseType] || baseType;
+}
+
 /**
  * Get the type of a person
  * @param {string} name
+ * @param {string|Date|null} onDate
  * @returns {string} 'ca1' | 'ca2' | 'ca3' | 'fellow' | 'crna' | 'faculty' | 'resident' | 'unknown'
  */
-function getPersonType(name) {
+function getPersonType(name, onDate = null) {
     const types = getPersonTypes();
-    return types[name] || 'unknown';
+    const baseType = types[name] || 'unknown';
+    const overrideType = getOverrideType(name, onDate);
+
+    if (overrideType) {
+        return overrideType;
+    }
+
+    return applyAcademicPromotion(baseType, onDate);
 }
 
 /**
  * Check if a person is a resident (CA1, CA2, CA3, or generic resident)
  * @param {string} name
+ * @param {string|Date|null} onDate
  * @returns {boolean}
  */
-function isResident(name) {
-    const type = getPersonType(name);
+function isResident(name, onDate = null) {
+    const type = getPersonType(name, onDate);
     return type === 'intern' || type === 'ca1' || type === 'ca2' || type === 'ca3' || type === 'resident';
 }
 
@@ -110,6 +178,44 @@ function getTypeClass(type) {
     return classes[type] || '';
 }
 
+function normalizePersonName(name) {
+    return (name || '')
+        .toLowerCase()
+        .replace(/\([^)]*\)/g, '')
+        .replace(/[.,]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function findMatchingName(targetName, candidates) {
+    const normalizedTarget = normalizePersonName(targetName);
+    if (!normalizedTarget) return '';
+
+    const exactMatch = candidates.find(name => normalizePersonName(name) === normalizedTarget);
+    if (exactMatch) return exactMatch;
+
+    const targetTokens = normalizedTarget.split(' ').filter(Boolean);
+    if (targetTokens.length === 0) return '';
+
+    let bestMatch = '';
+    let bestScore = 0;
+
+    candidates.forEach(name => {
+        const normalizedCandidate = normalizePersonName(name);
+        const candidateTokens = normalizedCandidate.split(' ').filter(Boolean);
+        const overlap = candidateTokens.filter(token => targetTokens.includes(token)).length;
+        const shorterNameFullyMatches = overlap > 0 &&
+            (overlap === targetTokens.length || overlap === candidateTokens.length);
+
+        if (shorterNameFullyMatches && overlap > bestScore) {
+            bestMatch = name;
+            bestScore = overlap;
+        }
+    });
+
+    return bestMatch;
+}
+
 /**
  * Get all unique resident names from the schedule (only actual residents by default)
  * @param {boolean} includeCRNA - Include CRNAs in the list
@@ -141,15 +247,23 @@ function populateUserSelector() {
 
     // Remember current selection
     const currentValue = select.value || MY_NAME;
+    const matchedValue = allNames.includes(currentValue)
+        ? currentValue
+        : findMatchingName(currentValue, allNames);
+    const selectedValue = matchedValue || currentValue;
 
     select.innerHTML = allNames.map(name =>
-        `<option value="${name}" ${name === currentValue ? 'selected' : ''}>${name}</option>`
+        `<option value="${name}" ${name === selectedValue ? 'selected' : ''}>${name}</option>`
     ).join('');
 
     // If current selection is no longer in list, select first option
-    if (!allNames.includes(currentValue) && allNames.length > 0) {
+    if (!allNames.includes(selectedValue) && allNames.length > 0) {
         select.value = allNames[0];
         MY_NAME = allNames[0];
+        localStorage.setItem('qgenda_my_name', MY_NAME);
+    } else if (matchedValue) {
+        select.value = matchedValue;
+        MY_NAME = matchedValue;
         localStorage.setItem('qgenda_my_name', MY_NAME);
     }
 }
@@ -1013,8 +1127,8 @@ function findCoverageCandidates(schedule, myName, dates) {
     const friendsData = getFriends();
     candidates.sort((a, b) => {
         // Residents before CRNAs (CRNAs are harder to get)
-        const aResident = isResident(a.name) ? 1 : 0;
-        const bResident = isResident(b.name) ? 1 : 0;
+        const aResident = isResident(a.name, a.free_dates[0]) ? 1 : 0;
+        const bResident = isResident(b.name, b.free_dates[0]) ? 1 : 0;
         if (aResident !== bResident) return bResident - aResident;
 
         // Friends first
@@ -1031,7 +1145,7 @@ function findCoverageCandidates(schedule, myName, dates) {
 
     // Add type info to each candidate
     candidates.forEach(c => {
-        c.type = getPersonType(c.name);
+        c.type = getPersonType(c.name, c.free_dates[0]);
     });
 
     return candidates;
@@ -1119,18 +1233,19 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     // Filter by person type (residents and fellows always shown, CRNAs optional)
     // Exclude interns - they can't cover call shifts
     filtered = filtered.filter(c => {
-        const ptype = getPersonType(c.name);
+        const referenceDate = c.free_dates[0];
+        const ptype = getPersonType(c.name, referenceDate);
         if (ptype === 'intern') return false;  // Interns can't cover call
-        if (isResident(c.name)) return true;  // Show CA1-CA3
+        if (isResident(c.name, referenceDate)) return true;  // Show CA1-CA3
         if (ptype === 'crna' && showCRNA) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
     });
 
     // Render coverage candidates
-    const residents = filtered.filter(c => c.type === 'resident');
+    const residents = filtered.filter(c => isResident(c.name, c.free_dates[0]));
     const crnas = filtered.filter(c => c.type === 'crna');
-    const others = filtered.filter(c => c.type !== 'resident' && c.type !== 'crna');
+    const others = filtered.filter(c => !isResident(c.name, c.free_dates[0]) && c.type !== 'crna');
 
     let candidatesHtml = '';
 
@@ -1145,7 +1260,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                 const isFriend = friendsData.friends.includes(c.name);
                 const isSamaritan = friendsData.good_samaritans.includes(c.name);
                 const coversAll = c.covers_all ? 'covers-all' : '';
-                const personType = getPersonType(c.name);
+                const personType = getPersonType(c.name, c.free_dates[0]);
                 const typeLabel = getTypeLabel(personType);
                 const typeClass = getTypeClass(personType);
                 html += `
@@ -1207,9 +1322,9 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                 filteredSwaps = filteredSwaps.filter(s => !hiddenSet.has(s.candidate));
             }
             filteredSwaps = filteredSwaps.filter(s => {
-                const ptype = getPersonType(s.candidate);
+                const ptype = getPersonType(s.candidate, s.blockedDate);
                 if (ptype === 'intern') return false;  // Interns can't cover call
-                if (isResident(s.candidate)) return true;  // Show CA1-CA3
+                if (isResident(s.candidate, s.blockedDate)) return true;  // Show CA1-CA3
                 if (ptype === 'crna' && showCRNA) return true;
                 if (ptype === 'fellow') return true;
                 return false;
@@ -1223,7 +1338,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
                 const initialLimit = 5;
                 filteredSwaps.forEach((swap, index) => {
                     const easeClass = swap.ease.toLowerCase().replace(' ', '-');
-                    const personType = getPersonType(swap.candidate);
+                    const personType = getPersonType(swap.candidate, swap.blockedDate);
                     const typeLabel = getTypeLabel(personType);
                     const typeClass = getTypeClass(personType);
                     const blockedDateDisplay = formatDateDisplay(parseDate(swap.blockedDate));
@@ -1422,8 +1537,8 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
 
     // Filter by person type (show residents by default, optionally CRNAs)
     swaps = swaps.filter(swap => {
-        const ptype = getPersonType(swap.candidate);
-        if (isResident(swap.candidate) && getPersonType(swap.candidate) !== 'intern') return true;  // Show residents except interns
+        const ptype = getPersonType(swap.candidate, weekend.saturday);
+        if (isResident(swap.candidate, weekend.saturday) && ptype !== 'intern') return true;  // Show residents except interns
         if (ptype === 'crna' && showCRNA) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
@@ -1446,6 +1561,11 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
         const aOff = aTheirType === 'off' ? 0 : 1;
         const bOff = bTheirType === 'off' ? 0 : 1;
         if (aOff !== bOff) return aOff - bOff;
+
+        // Residents before CRNAs
+        const resA = isResident(a.candidate, weekend.saturday) ? 0 : 1;
+        const resB = isResident(b.candidate, weekend.saturday) ? 0 : 1;
+        if (resA !== resB) return resA - resB;
 
         const friendA = friendsData.friends.includes(a.candidate) ? 0 : 1;
         const friendB = friendsData.friends.includes(b.candidate) ? 0 : 1;
@@ -1494,7 +1614,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
         const theirSatIcon = theirSatClass === 'night' ? '🌙' : theirSatClass === 'off' ? '🏖️' : '☀️';
         const theirSunIcon = theirSunClass === 'night' ? '🌙' : theirSunClass === 'off' ? '🏖️' : '☀️';
 
-        const personType = getPersonType(swap.candidate);
+        const personType = getPersonType(swap.candidate, weekend.saturday);
         const typeLabel = getTypeLabel(personType);
         const typeClass = getTypeClass(personType);
         const isCRNA = personType === 'crna';
@@ -1637,8 +1757,8 @@ function renderWhosFree(date, friendsOnly, showCRNA) {
 
     // Filter by person type
     allPeople = allPeople.filter(name => {
-        const ptype = getPersonType(name);
-        if (isResident(name)) return true;  // Always show residents
+        const ptype = getPersonType(name, date);
+        if (isResident(name, date)) return true;  // Always show residents
         if (ptype === 'crna' && showCRNA) return true;
         if (ptype === 'fellow') return true;  // Always show fellows
         return false;
