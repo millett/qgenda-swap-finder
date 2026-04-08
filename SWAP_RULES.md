@@ -99,6 +99,11 @@ Includes everything in Night Call Shifts, plus:
 
 ### Additional Eligibility Rules
 - **CA1s cannot cover Northshore assignments** (CA Northshore, CA Northshore Neuro, CA Northshore Call)
+- **Fellows do not cover standard resident CA shifts**
+  - Cardiac fellows may cover `CA CV Call`
+  - Pain fellows may cover APS/acute pain call coverage only
+  - ICU fellows may cover `CA ICU Call`
+  - When fellows do appear as valid swap options, the app treats them as a low-likelihood / `Very hard` ask
 - **Missing future schedule coverage is treated as unknown, not free**
   - If a person is not listed beyond a certain date in the export, the app omits them from availability/swap suggestions for later dates and shows a warning instead of assuming they are off.
 
@@ -342,3 +347,4 @@ All swap logic lives in `js/swap-finder.js`:
 |------|--------|
 | 2026-02-02 | Initial documentation created |
 | 2026-02-02 | Added SENIOR_ONLY_SHIFTS, seniority eligibility checks |
+| 2026-04-08 | Restricted fellows to specialty-specific exception coverage (CV/APS/ICU call only) and downgraded fellow swap suggestions to Very hard |

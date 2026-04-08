@@ -141,10 +141,82 @@ const INFO_ONLY_SHIFTS = new Set([
 ]);
 
 const SCHEDULE_RANGE_CACHE = new WeakMap();
+const FELLOW_SPECIALTY_CACHE = new Map();
+
+const FELLOW_CARDIAC_COVERAGE_SHIFTS = new Set([
+  'CA CV Call',
+]);
+
+const FELLOW_ICU_COVERAGE_SHIFTS = new Set([
+  'CA ICU Call',
+]);
 
 // ============================================================================
 // ELIGIBILITY HELPERS
 // ============================================================================
+
+function inferFellowSpecialties(personName) {
+  if (FELLOW_SPECIALTY_CACHE.has(personName)) {
+    return FELLOW_SPECIALTY_CACHE.get(personName);
+  }
+
+  const specialties = new Set();
+  const allScheduleEntries = (typeof SCHEDULE !== 'undefined' && Array.isArray(SCHEDULE)) ? SCHEDULE : [];
+
+  for (const entry of allScheduleEntries) {
+    if (entry.name !== personName || typeof entry.shift !== 'string') continue;
+
+    const shift = entry.shift.toLowerCase();
+    if (!shift.includes('fellow')) continue;
+
+    if (shift.includes('cardiac') || shift.includes('cv call')) {
+      specialties.add('cardiac');
+    }
+
+    if (shift.includes('pain') || shift.includes('aps')) {
+      specialties.add('pain');
+    }
+
+    if (shift.includes('icu') || shift.includes('sicu') || shift.includes('cticu')) {
+      specialties.add('icu');
+    }
+  }
+
+  FELLOW_SPECIALTY_CACHE.set(personName, specialties);
+  return specialties;
+}
+
+function canFellowCoverShift(personName, shift) {
+  const specialties = inferFellowSpecialties(personName);
+  const normalizedShift = typeof shift === 'string' ? shift.toLowerCase() : '';
+  const hasCvCall = /\bcv call\b/.test(normalizedShift);
+  const hasIcuCall = /\bicu call\b/.test(normalizedShift);
+
+  if (FELLOW_CARDIAC_COVERAGE_SHIFTS.has(shift) || hasCvCall) {
+    return specialties.has('cardiac');
+  }
+
+  if (FELLOW_ICU_COVERAGE_SHIFTS.has(shift) || hasIcuCall) {
+    return specialties.has('icu');
+  }
+
+  if (normalizedShift.includes('aps') || normalizedShift.includes('acute pain')) {
+    return specialties.has('pain');
+  }
+
+  return false;
+}
+
+function downgradeEaseForFellowCandidate(ease, candidate) {
+  if (!candidate) return ease;
+
+  const candidateType = getPersonSeniority(candidate);
+  if (candidateType !== 'fellow') {
+    return ease;
+  }
+
+  return 'Very hard';
+}
 
 /**
  * Check if a person can cover a specific shift based on seniority.
@@ -160,14 +232,18 @@ function canCoverShift(personName, shift, onDate = null) {
     ? getPersonType(personName, onDate)
     : ((typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown');
 
+  if (personType === 'fellow') {
+    return canFellowCoverShift(personName, shift);
+  }
+
   // Interns cannot cover ANY call shifts
   if (personType === 'intern' && CALL_SHIFTS.has(shift)) {
     return false;
   }
 
-  // Senior-only shifts require CA3+ or fellow
+  // Senior-only shifts require CA3+.
   if (SENIOR_ONLY_SHIFTS.has(shift)) {
-    const seniorTypes = new Set(['ca3', 'fellow']);
+    const seniorTypes = new Set(['ca3']);
     return seniorTypes.has(personType);
   }
 
@@ -479,21 +555,23 @@ function getWeekendBurden(weekendShifts) {
  * @returns {string} Ease level: 'Easy', 'Moderate', 'Hard sell', or 'Very hard'
  */
 function calculateSwapEase(myType, theirType, prefersNights = new Set(), candidate = null, theirShifts = new Set()) {
+  const withFellowPenalty = ease => downgradeEaseForFellowCandidate(ease, candidate);
+
   // If THEY have vacation on their weekend, very hard sell
   // (asking them to give up vacation - still show them, but clearly marked)
   if (setsIntersect(theirShifts, VACATION_SHIFTS)) {
-    return 'Very hard';
+    return withFellowPenalty('Very hard');
   }
 
   // CV Call is difficult to swap - limited pool of qualified residents
   if (theirShifts.has('CA CV Call')) {
-    return 'Moderate';
+    return withFellowPenalty('Moderate');
   }
 
   // GOR3/GOR4 are home call shifts that residents get paid for - very desirable
   // Asking someone to give up their paid home call for any other call is a very hard sell
   if (theirShifts.has('CA GOR3') || theirShifts.has('CA GOR4')) {
-    return 'Very hard';
+    return withFellowPenalty('Very hard');
   }
 
   // If they prefer nights and have nights, taking them is actually harder
@@ -502,50 +580,50 @@ function calculateSwapEase(myType, theirType, prefersNights = new Set(), candida
 
   // Same type swaps are generally easy
   if (myType === theirType) {
-    return 'Easy';
+    return withFellowPenalty('Easy');
   }
 
   // I have night, they have day - I'm asking for an upgrade
   if (myType === 'night' && theirType === 'day') {
     if (candidatePreferNights) {
-      return 'Easy'; // They want nights anyway
+      return withFellowPenalty('Easy'); // They want nights anyway
     }
-    return 'Hard sell';
+    return withFellowPenalty('Hard sell');
   }
 
   // I have day, they have night - I'm offering an upgrade
   if (myType === 'day' && theirType === 'night') {
     if (candidatePreferNights) {
-      return 'Hard sell'; // They actually want their night
+      return withFellowPenalty('Hard sell'); // They actually want their night
     }
-    return 'Easy';
+    return withFellowPenalty('Easy');
   }
 
   // Night <-> Off scenarios
   if (myType === 'night' && theirType === 'off') {
     if (candidatePreferNights) {
-      return 'Moderate'; // They might want it
+      return withFellowPenalty('Moderate'); // They might want it
     }
-    return 'Hard sell'; // Asking them to take on work
+    return withFellowPenalty('Hard sell'); // Asking them to take on work
   }
 
   if (myType === 'off' && theirType === 'night') {
     if (candidatePreferNights) {
-      return 'Hard sell'; // They want their night
+      return withFellowPenalty('Hard sell'); // They want their night
     }
-    return 'Easy'; // Offering to take their undesirable shift
+    return withFellowPenalty('Easy'); // Offering to take their undesirable shift
   }
 
   // Day <-> Off scenarios
   if (myType === 'day' && theirType === 'off') {
-    return 'Moderate'; // Asking them to work, but it's just day shift
+    return withFellowPenalty('Moderate'); // Asking them to work, but it's just day shift
   }
 
   if (myType === 'off' && theirType === 'day') {
-    return 'Easy'; // Offering to take their shift
+    return withFellowPenalty('Easy'); // Offering to take their shift
   }
 
-  return 'Moderate';
+  return withFellowPenalty('Moderate');
 }
 
 /**
@@ -721,6 +799,8 @@ function findWeekendSwap(schedule, myName, weekendDates, lookBackWeeks = 4, look
   allResidents.delete(myName);
 
   const candidates = [];
+  const coverageWarnings = {};
+  let selfCoverageWarning = null;
 
   // Generate weekend date pairs to check
   const startCheck = addDays(mySat < mySun ? mySat : mySun, -lookBackWeeks * 7);

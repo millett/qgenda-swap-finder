@@ -365,20 +365,21 @@ function saveHiddenCandidates(key, set) {
     localStorage.setItem(getUserKey(key), JSON.stringify([...set]));
 }
 
-function toggleHiddenCandidate(featureKey, name, hide) {
-    const key = featureKey === 'weekend' ? 'qgenda_hidden_weekend' : 'qgenda_hidden_trip';
-    const hidden = getHiddenCandidates(key);
-    if (hide) {
-        hidden.add(name);
-    } else {
-        hidden.delete(name);
+function getHiddenCandidateConfig(featureKey) {
+    if (featureKey === 'weekend') {
+        return { storageKey: 'qgenda_hidden_weekend', checkboxId: 'weekend-show-hidden' };
     }
-    saveHiddenCandidates(key, hidden);
+    return { storageKey: 'qgenda_hidden_trip', checkboxId: 'trip-show-hidden' };
+}
 
+function rerenderHiddenCandidateFeature(featureKey) {
     if (featureKey === 'weekend' && window.lastWeekendSearch) {
         const p = window.lastWeekendSearch;
         renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA, p.showFaculty);
-    } else if (featureKey === 'trip') {
+        return;
+    }
+
+    if (featureKey === 'trip') {
         const startDate = document.getElementById('trip-start').value;
         const endDate = document.getElementById('trip-end').value;
         if (startDate && endDate) {
@@ -391,6 +392,60 @@ function toggleHiddenCandidate(featureKey, name, hide) {
             );
         }
     }
+}
+
+function toggleHiddenCandidate(featureKey, name, hide) {
+    const { storageKey: key } = getHiddenCandidateConfig(featureKey);
+    const hidden = getHiddenCandidates(key);
+    if (hide) {
+        hidden.add(name);
+    } else {
+        hidden.delete(name);
+    }
+    saveHiddenCandidates(key, hidden);
+    rerenderHiddenCandidateFeature(featureKey);
+}
+
+function setHiddenCandidatesVisible(featureKey, visible) {
+    const { checkboxId } = getHiddenCandidateConfig(featureKey);
+    const checkbox = document.getElementById(checkboxId);
+    if (checkbox) {
+        checkbox.checked = visible;
+    }
+    rerenderHiddenCandidateFeature(featureKey);
+}
+
+function resetHiddenCandidates(featureKey) {
+    const { storageKey, checkboxId } = getHiddenCandidateConfig(featureKey);
+    saveHiddenCandidates(storageKey, new Set());
+    const checkbox = document.getElementById(checkboxId);
+    if (checkbox) {
+        checkbox.checked = false;
+    }
+    rerenderHiddenCandidateFeature(featureKey);
+}
+
+function buildHiddenCandidatesNotice(featureKey, showHidden) {
+    const { storageKey } = getHiddenCandidateConfig(featureKey);
+    const hiddenCount = getHiddenCandidates(storageKey).size;
+    if (!hiddenCount) return '';
+
+    const subject = hiddenCount === 1 ? 'person' : 'people';
+    const status = showHidden
+        ? `Showing ${hiddenCount} hidden ${subject}.`
+        : `${hiddenCount} hidden ${subject} ${hiddenCount === 1 ? 'is' : 'are'} currently filtered out.`;
+    const toggleLabel = showHidden ? 'Hide hidden people again' : 'Show hidden people';
+
+    return `
+        <div class="hidden-candidates-banner">
+            <strong>Hidden candidates</strong>
+            <span>${status}</span>
+            <div class="hidden-candidates-actions">
+                <button class="secondary" type="button" onclick="setHiddenCandidatesVisible('${featureKey}', ${!showHidden})">${toggleLabel}</button>
+                <button class="secondary" type="button" onclick="resetHiddenCandidates('${featureKey}')">Reset hidden list</button>
+            </div>
+        </div>
+    `;
 }
 
 function getFriends() {
@@ -1113,18 +1168,7 @@ function initTripPlannerTab() {
     const tripResetHidden = document.getElementById('trip-reset-hidden');
     if (tripResetHidden) {
         tripResetHidden.addEventListener('click', () => {
-            saveHiddenCandidates('qgenda_hidden_trip', new Set());
-            const startDate = document.getElementById('trip-start').value;
-            const endDate = document.getElementById('trip-end').value;
-            if (startDate && endDate) {
-                renderTripPlanner(
-                    startDate,
-                    endDate,
-                    document.getElementById('trip-depart-evening').checked,
-                    document.getElementById('trip-friends-only').checked,
-                    document.getElementById('trip-show-crna').checked
-                );
-            }
+            resetHiddenCandidates('trip');
         });
     }
 }
@@ -1232,6 +1276,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
 
     const showHidden = document.getElementById('trip-show-hidden')?.checked || false;
     const hiddenSet = getHiddenCandidates('qgenda_hidden_trip');
+    const hiddenNoticeHtml = buildHiddenCandidatesNotice('trip', showHidden);
 
     const result = findTripCoverage(SCHEDULE, MY_NAME, startDate, endDate, departEvening);
 
@@ -1372,10 +1417,12 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
     // Render swap suggestions if there are blocked dates
     if (blockedDates.length > 0) {
         const swapResults = findTripSwapOpportunities(SCHEDULE, MY_NAME, blockedDates, 4);
-        let swapsHtml = '';
+        let swapsHtml = hiddenNoticeHtml;
+        let hasVisibleTripResults = false;
 
         // Good Samaritans section
         if (swapResults.goodSamaritans.length > 0) {
+            hasVisibleTripResults = true;
             swapsHtml += '<h4>😇 Good Samaritans (No Swap Needed)</h4>';
             swapsHtml += '<div class="trip-samaritans">';
             swapResults.goodSamaritans.forEach(sam => {
@@ -1412,6 +1459,7 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             });
 
             if (filteredSwaps.length > 0) {
+                hasVisibleTripResults = true;
                 swapsHtml += '<h4>💱 Swap Suggestions</h4>';
                 swapsHtml += '<p class="swap-suggestions-hint">Offer to take their shift in exchange for coverage</p>';
                 swapsHtml += '<div class="trip-swap-cards" id="trip-swap-cards-container">';
@@ -1469,9 +1517,15 @@ function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showC
             }
         }
 
+        if (!hasVisibleTripResults && hiddenNoticeHtml) {
+            swapsHtml += '<p class="muted">Use the buttons above to show hidden suggestions or clear the hidden list.</p>';
+        } else if (!swapsHtml) {
+            swapsHtml = '<p class="no-data">No swap suggestions found</p>';
+        }
+
         document.getElementById('trip-swaps').innerHTML = swapsHtml;
     } else {
-        document.getElementById('trip-swaps').innerHTML = '';
+        document.getElementById('trip-swaps').innerHTML = hiddenNoticeHtml;
     }
 
     hideLoading('trip-shifts');
@@ -1569,11 +1623,7 @@ function initWeekendSwapTab() {
     const weekendResetHidden = document.getElementById('weekend-reset-hidden');
     if (weekendResetHidden) {
         weekendResetHidden.addEventListener('click', () => {
-            saveHiddenCandidates('qgenda_hidden_weekend', new Set());
-            if (window.lastWeekendSearch) {
-                const p = window.lastWeekendSearch;
-                renderWeekendSwap(p.weekend, p.weeksToSearch, p.friendsOnly, p.showCRNA);
-            }
+            resetHiddenCandidates('weekend');
         });
     }
 }
@@ -1603,6 +1653,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
 
     const showHidden = document.getElementById('weekend-show-hidden')?.checked || false;
     const hiddenSet = getHiddenCandidates('qgenda_hidden_weekend');
+    const hiddenNoticeHtml = buildHiddenCandidatesNotice('weekend', showHidden);
 
     // Store for message generation
     window.currentWeekendSwaps = swaps;
@@ -1668,7 +1719,10 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
     window.currentWeekendSwaps = swaps;
 
     if (swaps.length === 0) {
-        document.getElementById('weekend-results').innerHTML = weekendCoverageWarningHtml + '<p class="no-data">No swap candidates found</p>';
+        const hiddenHint = hiddenNoticeHtml
+            ? '<p class="muted">Use the buttons above to show hidden candidates or clear the hidden list.</p>'
+            : '';
+        document.getElementById('weekend-results').innerHTML = weekendCoverageWarningHtml + hiddenNoticeHtml + hiddenHint + '<p class="no-data">No swap candidates found</p>';
         hideLoading('weekend-results');
         return;
     }
@@ -1774,7 +1828,7 @@ function renderWeekendSwap(weekend, weeksToSearch, friendsOnly, showCRNA) {
         `;
     }).join('');
 
-    document.getElementById('weekend-results').innerHTML = weekendCoverageWarningHtml + html;
+    document.getElementById('weekend-results').innerHTML = weekendCoverageWarningHtml + hiddenNoticeHtml + html;
     hideLoading('weekend-results');
 }
 
