@@ -559,6 +559,7 @@ function getUnknownCaShiftCounts() {
         ...DAY_SHIFTS,
         ...ICU_SHIFTS,
         ...UNAVAILABLE_SHIFTS,
+        ...INFO_ONLY_SHIFTS,
     ]);
 
     const counts = {};
@@ -1769,7 +1770,7 @@ function renderWhosFree(date, friendsOnly, showCRNA) {
     // Get what each free person is doing that day
     const html = freeResidents.length > 0
         ? freeResidents.map(name => {
-            const theirShifts = SCHEDULE.filter(s => s.date === date && s.name === name);
+            const theirShifts = getShiftsOnDate(SCHEDULE, name, parseDate(date));
             const shifts = theirShifts.length > 0
                 ? theirShifts.map(s => s.shift).join(', ')
                 : 'OFF';

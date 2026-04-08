@@ -16,6 +16,7 @@ const NIGHT_CALL_SHIFTS = new Set([
   'CA GOR1 Night Call',
   'CA GOR2 Night Call',
   'CA CART Night Call',
+  'CA SICU Call',
 ]);
 
 // Shift categories for swap eligibility
@@ -32,6 +33,7 @@ const CALL_SHIFTS = new Set([
   'CA CV Call',
   'CA COMER Call',
   'CA ICU Call',
+  'CA SICU Call',
   'CA Northshore Call',
   'CA GOR3',  // 24-hour home call
   'CA GOR4',  // 24-hour home call
@@ -43,6 +45,7 @@ const ICU_SHIFTS = new Set([
   'CA CTICU',
   'CA SICU',
   'CA ICU Call',
+  'CA SICU Call',
   'CA ICU 3 Elective',
 ]);
 
@@ -119,6 +122,8 @@ const DAY_SHIFTS = new Set([
 const UNAVAILABLE_SHIFTS = new Set([
   'CA Vacation',
   'CA Vacation Week',
+  'CA Holiday',
+  'CA FMLA',
   'CA Sick',
   'CA Post Call',
   'CA Home Post Call',
@@ -127,6 +132,12 @@ const UNAVAILABLE_SHIFTS = new Set([
   'CA Meeting',
   'CA half-day/meeting',
   'CA ACLS',
+]);
+
+// Informational markers that should not count as real assignments.
+const INFO_ONLY_SHIFTS = new Set([
+  'CA Call Req',
+  'CA No Call Req',
 ]);
 
 // ============================================================================
@@ -275,7 +286,11 @@ function isSameDay(date1, date2) {
  */
 function getShiftsOnDate(schedule, name, date) {
   const dateStr = formatDate(date);
-  return schedule.filter(s => s.name === name && s.date === dateStr);
+  return schedule.filter(s =>
+    s.name === name &&
+    s.date === dateStr &&
+    !INFO_ONLY_SHIFTS.has(s.shift)
+  );
 }
 
 /**
@@ -327,6 +342,8 @@ function hasPostCallConflict(schedule, name, nightCallDate) {
     'CA Home Post Call',
     'CA Vacation',
     'CA Vacation Week',
+    'CA Holiday',
+    'CA FMLA',
     'CA Sick',
     'CA Excused',
   ]);
@@ -1047,6 +1064,8 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
     const offCompatible = new Set([
       'CA Vacation',
       'CA Vacation Week',
+      'CA Holiday',
+      'CA FMLA',
       'CA Post Call',
       'CA Home Post Call',
       'CA Excused'
@@ -1460,7 +1479,7 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
 /**
  * Classify a shift type
  * @param {string} shift
- * @returns {string} 'call', 'day', 'off', or 'other'
+ * @returns {string} 'call', 'day', 'off', 'info', or 'other'
  */
 function classifyShift(shift) {
   if (CALL_SHIFTS.has(shift)) {
@@ -1469,6 +1488,8 @@ function classifyShift(shift) {
     return 'day';
   } else if (UNAVAILABLE_SHIFTS.has(shift)) {
     return 'off';
+  } else if (INFO_ONLY_SHIFTS.has(shift)) {
+    return 'info';
   }
   return 'other';
 }
@@ -1496,6 +1517,7 @@ window.SwapFinder = {
   VACATION_INELIGIBLE_SHIFTS,
   DAY_SHIFTS,
   UNAVAILABLE_SHIFTS,
+  INFO_ONLY_SHIFTS,
   SENIOR_ONLY_SHIFTS,
   CA1_RESTRICTED_SHIFTS,
 

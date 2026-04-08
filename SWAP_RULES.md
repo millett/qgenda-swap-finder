@@ -34,6 +34,7 @@ Includes everything in Night Call Shifts, plus:
 | CA CV Call | Cardiac call (limited qualified pool) |
 | CA COMER Call | Comer hospital call |
 | CA ICU Call | ICU call |
+| CA SICU Call | 24-hour SICU call |
 | CA Northshore Call | Northshore campus call |
 | CA GOR3 | 24-hour paid home call - very desirable |
 | CA GOR4 | 24-hour paid home call - very desirable |
@@ -80,6 +81,7 @@ Includes everything in Night Call Shifts, plus:
 | CA CTICU | CT ICU rotation |
 | CA SICU | Surgical ICU rotation |
 | CA ICU Call | ICU call rotation |
+| CA SICU Call | SICU call during ICU rotation |
 | CA ICU 3 Elective | ICU elective |
 
 > **Important**: ICU rotations are assigned in advance and are NOT eligible for swaps. The app filters these out automatically.
@@ -105,6 +107,8 @@ Includes everything in Night Call Shifts, plus:
 |------------|-------|
 | CA Vacation | Single vacation day |
 | CA Vacation Week | Full vacation week |
+| CA Holiday | Holiday day off |
+| CA FMLA | Protected leave / day off |
 | CA Sick | Sick day |
 | CA Post Call | Post-call marker (not a real shift) |
 | CA Home Post Call | Home call post-call marker |
@@ -113,6 +117,14 @@ Includes everything in Night Call Shifts, plus:
 | CA Meeting | Meeting/administrative |
 | CA half-day/meeting | Half day for meeting |
 | CA ACLS | Off day |
+
+### Informational Markers (Ignored by Swap Logic)
+**Metadata shown in the export that should not count as real assignments.**
+
+| Shift Name | Notes |
+|------------|-------|
+| CA Call Req | Requested call, not an actual assigned shift |
+| CA No Call Req | Requested no call, not an actual assigned shift |
 
 ---
 
@@ -181,6 +193,8 @@ If either person has a conflict, the swap is not shown.
 - CA Home Post Call
 - CA Vacation
 - CA Vacation Week
+- CA Holiday
+- CA FMLA
 - CA Sick
 - CA Excused
 
@@ -271,7 +285,7 @@ If someone is marked as "prefers nights":
 
 When adding a new shift type to the schedule:
 
-1. **Determine category**: Is it night call, day call, home call, day shift, or unavailable?
+1. **Determine category**: Is it night call, day call, home call, day shift, unavailable, ICU, or informational?
 
 2. **Add to appropriate Set** in `swap-finder.js`:
    ```javascript
@@ -286,6 +300,9 @@ When adding a new shift type to the schedule:
 
    // For unavailable/off
    const UNAVAILABLE_SHIFTS = new Set([...existing..., 'CA New Unavailable']);
+
+   // For informational markers that should not affect swap logic
+   const INFO_ONLY_SHIFTS = new Set([...existing..., 'CA New Info Marker']);
    ```
 
 3. **Update this document** with the new shift
