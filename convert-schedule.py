@@ -283,11 +283,22 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
 
     # Generate timestamp
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    date_start = filtered_shifts['date'].min().strftime('%Y-%m-%d') if len(filtered_shifts) else ''
+    date_end = filtered_shifts['date'].max().strftime('%Y-%m-%d') if len(filtered_shifts) else ''
+    source_name = input_file.name.replace('"', '\\"')
 
     # Build JavaScript content
     js_lines = [
         f"// Generated from {input_file.name}",
         f"// Last updated: {timestamp}",
+        "const SCHEDULE_METADATA = {",
+        f'  sourceFile: "{source_name}",',
+        f'  lastUpdated: "{timestamp}",',
+        f'  dateStart: "{date_start}",',
+        f'  dateEnd: "{date_end}",',
+        f'  recordCount: {len(filtered_shifts)},',
+        "};",
+        "",
         "const SCHEDULE = ["
     ]
 

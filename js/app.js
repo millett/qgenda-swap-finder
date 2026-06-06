@@ -1,7 +1,7 @@
 // app.js - Main UI logic for QGenda Swap Finder
 
-// User name - can be changed via UI
-let MY_NAME = localStorage.getItem('qgenda_my_name') || "Millett, Matthew";
+// User name - selected per browser and persisted locally.
+let MY_NAME = localStorage.getItem('qgenda_my_name') || "";
 
 // Person types are now loaded from PERSON_TYPES_DATA in schedule.js (extracted from Excel colors)
 // Fallback classification for people not in the color data.
@@ -247,20 +247,24 @@ function populateUserSelector() {
 
     // Remember current selection
     const currentValue = select.value || MY_NAME;
-    const matchedValue = allNames.includes(currentValue)
+    const matchedValue = currentValue && allNames.includes(currentValue)
         ? currentValue
         : findMatchingName(currentValue, allNames);
     const selectedValue = matchedValue || currentValue;
 
-    select.innerHTML = allNames.map(name =>
+    select.innerHTML = '<option value="">Select your name...</option>' + allNames.map(name =>
         `<option value="${name}" ${name === selectedValue ? 'selected' : ''}>${name}</option>`
     ).join('');
 
-    // If current selection is no longer in list, select first option
-    if (!allNames.includes(selectedValue) && allNames.length > 0) {
-        select.value = allNames[0];
-        MY_NAME = allNames[0];
-        localStorage.setItem('qgenda_my_name', MY_NAME);
+    // If there is no saved selection, keep the neutral first-run state.
+    if (!selectedValue) {
+        select.value = '';
+        MY_NAME = '';
+        localStorage.removeItem('qgenda_my_name');
+    } else if (!allNames.includes(selectedValue)) {
+        select.value = '';
+        MY_NAME = '';
+        localStorage.removeItem('qgenda_my_name');
     } else if (matchedValue) {
         select.value = matchedValue;
         MY_NAME = matchedValue;
@@ -283,7 +287,11 @@ function initUserSelector() {
 
     select.addEventListener('change', (e) => {
         MY_NAME = e.target.value;
-        localStorage.setItem('qgenda_my_name', MY_NAME);
+        if (MY_NAME) {
+            localStorage.setItem('qgenda_my_name', MY_NAME);
+        } else {
+            localStorage.removeItem('qgenda_my_name');
+        }
 
         // Refresh current tab data
         refreshCurrentTab();
@@ -958,6 +966,16 @@ function initMyScheduleTab() {
 
 function renderMySchedule(daysAhead) {
     showLoading('upcoming-shifts');
+
+    if (!MY_NAME) {
+        document.getElementById('next-call-date').textContent = '-';
+        document.getElementById('total-calls').textContent = '-';
+        document.getElementById('day-shifts').textContent = '-';
+        document.getElementById('days-off').textContent = '-';
+        document.getElementById('upcoming-shifts').innerHTML = '<p class="no-data">Select your name above to view your schedule.</p>';
+        document.getElementById('weekly-breakdown').innerHTML = '<p>No data</p>';
+        return;
+    }
 
     const summary = getScheduleSummary(SCHEDULE, MY_NAME, daysAhead);
     const stats = summary.stats;
@@ -2129,9 +2147,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initLedgerTab();
 
     // Update schedule info in footer
-    const dateRange = getScheduleDateRange();
-    document.getElementById('schedule-info').textContent =
-        `${SCHEDULE.length} shifts from ${dateRange.start} to ${dateRange.end}`;
+    const scheduleInfoText = getScheduleInfoText();
+    document.getElementById('schedule-info').textContent = scheduleInfoText;
+    const topScheduleInfo = document.getElementById('schedule-info-top');
+    if (topScheduleInfo) {
+        topScheduleInfo.textContent = scheduleInfoText;
+    }
 
     // Data quality: show any unmapped CA shifts
     renderShiftAudit();
@@ -2148,4 +2169,15 @@ function getScheduleDateRange() {
         start: dates[0],
         end: dates[dates.length - 1]
     };
+}
+
+function getScheduleInfoText() {
+    const dateRange = getScheduleDateRange();
+    const metadata = typeof SCHEDULE_METADATA !== 'undefined' ? SCHEDULE_METADATA : {};
+    const recordCount = metadata.recordCount || SCHEDULE.length;
+    const start = metadata.dateStart || dateRange.start;
+    const end = metadata.dateEnd || dateRange.end;
+    const updated = metadata.lastUpdated ? `; updated ${metadata.lastUpdated}` : '';
+
+    return `${recordCount} shifts from ${start} to ${end}${updated}`;
 }

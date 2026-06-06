@@ -6,6 +6,12 @@
   color: var(--pico-muted-color);
 }
 
+.schedule-status {
+  margin-top: -0.35rem;
+  color: var(--pico-muted-color);
+  font-size: 0.9rem;
+}
+
 /* ============================================
    User Selector
    ============================================ */
