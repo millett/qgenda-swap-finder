@@ -8,6 +8,7 @@ Static web app for anesthesia residents to find shift swap candidates. Open `ind
 - **Golden Weekends** - Find weekends where you and friends are off
 - **Trip Planner** - Find coverage for vacation dates
 - **Weekend Swap** - Find swap candidates with ease ratings
+- **Holiday Swap** - Find resident/fellow coverage for holiday assignments
 - **Assignments** - See assignments for residents not on call/day/ICU on a specific date
 - **Friends List** - Manage preferred swap partners
 - **Swap Ledger** - Track who owes whom (hidden by default)

@@ -140,6 +140,8 @@ const INFO_ONLY_SHIFTS = new Set([
   'CA No Call Req',
 ]);
 
+const HOLIDAY_LOOKUP_CACHE = new Map();
+
 const SCHEDULE_RANGE_CACHE = new WeakMap();
 const FELLOW_SPECIALTY_CACHE = new Map();
 
@@ -266,6 +268,105 @@ function getPersonSeniority(personName, onDate = null) {
     return getPersonType(personName, onDate);
   }
   return (typeof PERSON_TYPES_DATA !== 'undefined' && PERSON_TYPES_DATA[personName]) || 'unknown';
+}
+
+function getNthWeekdayOfMonth(year, monthIndex, weekday, nth) {
+  const date = new Date(year, monthIndex, 1);
+  const offset = (weekday - date.getDay() + 7) % 7;
+  date.setDate(1 + offset + (nth - 1) * 7);
+  return date;
+}
+
+function getLastWeekdayOfMonth(year, monthIndex, weekday) {
+  const date = new Date(year, monthIndex + 1, 0);
+  const offset = (date.getDay() - weekday + 7) % 7;
+  date.setDate(date.getDate() - offset);
+  return date;
+}
+
+function getObservedFixedHoliday(year, monthIndex, day) {
+  const actual = new Date(year, monthIndex, day);
+  if (actual.getDay() === 0) return addDays(actual, 1);
+  if (actual.getDay() === 6) return addDays(actual, -1);
+  return actual;
+}
+
+function getKnownHolidaysForYears(years) {
+  const seen = new Set();
+  const holidays = [];
+
+  const addHoliday = (date, label) => {
+    const dateStr = formatDate(date);
+    if (seen.has(dateStr)) return;
+    seen.add(dateStr);
+    holidays.push({ date: dateStr, label });
+  };
+
+  [...new Set(years)].sort().forEach(year => {
+    const newYearsObserved = getObservedFixedHoliday(year, 0, 1);
+    addHoliday(newYearsObserved, newYearsObserved.getFullYear() === year ? "New Year's Day" : "New Year's Day (observed)");
+    addHoliday(getNthWeekdayOfMonth(year, 0, 1, 3), 'Martin Luther King Jr. Day');
+    addHoliday(getNthWeekdayOfMonth(year, 1, 1, 3), "Presidents' Day");
+    addHoliday(getLastWeekdayOfMonth(year, 4, 1), 'Memorial Day');
+
+    const juneteenthObserved = getObservedFixedHoliday(year, 5, 19);
+    addHoliday(juneteenthObserved, juneteenthObserved.getDate() === 19 ? 'Juneteenth' : 'Juneteenth (observed)');
+
+    const independenceObserved = getObservedFixedHoliday(year, 6, 4);
+    addHoliday(independenceObserved, independenceObserved.getDate() === 4 ? 'Independence Day' : 'Independence Day (observed)');
+    if (formatDate(independenceObserved) !== formatDate(new Date(year, 6, 4))) {
+      addHoliday(new Date(year, 6, 4), 'Independence Day');
+    }
+
+    addHoliday(getNthWeekdayOfMonth(year, 8, 1, 1), 'Labor Day');
+    addHoliday(getNthWeekdayOfMonth(year, 9, 1, 2), 'Indigenous Peoples Day');
+    addHoliday(new Date(year, 10, 11), 'Veterans Day');
+    addHoliday(getNthWeekdayOfMonth(year, 10, 4, 4), 'Thanksgiving');
+    addHoliday(addDays(getNthWeekdayOfMonth(year, 10, 4, 4), 1), 'Day after Thanksgiving');
+    addHoliday(new Date(year, 11, 24), 'Christmas Eve');
+
+    const christmasObserved = getObservedFixedHoliday(year, 11, 25);
+    addHoliday(christmasObserved, christmasObserved.getDate() === 25 ? 'Christmas Day' : 'Christmas Day (observed)');
+    if (formatDate(christmasObserved) !== formatDate(new Date(year, 11, 25))) {
+      addHoliday(new Date(year, 11, 25), 'Christmas Day');
+    }
+
+    addHoliday(new Date(year, 11, 31), "New Year's Eve");
+  });
+
+  return holidays.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getKnownHolidaysForSchedule(schedule) {
+  if (HOLIDAY_LOOKUP_CACHE.has(schedule)) {
+    return HOLIDAY_LOOKUP_CACHE.get(schedule);
+  }
+
+  const dates = schedule
+    .map(entry => entry.date)
+    .filter(Boolean)
+    .sort();
+  if (dates.length === 0) return [];
+
+  const start = dates[0];
+  const end = dates[dates.length - 1];
+  const years = [...new Set(dates.map(date => Number(date.slice(0, 4))))];
+  const holidays = getKnownHolidaysForYears(years)
+    .filter(holiday => holiday.date >= start && holiday.date <= end);
+
+  HOLIDAY_LOOKUP_CACHE.set(schedule, holidays);
+  return holidays;
+}
+
+function getHolidayInfo(date) {
+  const dateObj = typeof date === 'string' ? parseDate(date) : date;
+  const dateStr = formatDate(dateObj);
+  const holidays = getKnownHolidaysForYears([dateObj.getFullYear()]);
+  return holidays.find(holiday => holiday.date === dateStr) || null;
+}
+
+function isHolidayDate(date) {
+  return Boolean(getHolidayInfo(date));
 }
 
 // ============================================================================
@@ -1676,6 +1777,176 @@ function findTripSwapOpportunities(schedule, myName, blockedDates, lookWeeks = 4
   };
 }
 
+/**
+ * Find people who could cover a holiday shift and possible return swaps.
+ *
+ * @param {Array} schedule - Full schedule array
+ * @param {string} myName - Your name
+ * @param {string|Date} holidayDate - Holiday date to cover
+ * @param {Object} options
+ * @param {number} options.lookWeeks - Weeks before/after the holiday to search for return swaps
+ * @returns {Object} Holiday swap result with myShifts, candidates, and coverage warnings
+ */
+function findHolidaySwapCandidates(schedule, myName, holidayDate, options = {}) {
+  const lookWeeks = options.lookWeeks || 12;
+  const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
+  const holidayDateObj = typeof holidayDate === 'string' ? parseDate(holidayDate) : holidayDate;
+  const holidayDateStr = formatDate(holidayDateObj);
+  const holidayInfo = getHolidayInfo(holidayDateObj);
+  const holidayName = holidayInfo ? holidayInfo.label : formatDateDisplay(holidayDateObj);
+  const friends = getFriends();
+  const prefersNights = new Set(friends.prefers_nights || []);
+
+  const myAllShifts = getShiftsOnDate(caSchedule, myName, holidayDateObj);
+  const myWorkShifts = myAllShifts.filter(s =>
+    CALL_SHIFTS.has(s.shift) || DAY_SHIFTS.has(s.shift) || ICU_SHIFTS.has(s.shift)
+  );
+
+  if (myWorkShifts.length === 0) {
+    return {
+      date: holidayDateStr,
+      holidayName,
+      myShifts: [],
+      candidates: [],
+      coverageWarnings: [],
+      noShift: true,
+    };
+  }
+
+  const targetShift = myWorkShifts[0].shift;
+  const allPeople = new Set(caSchedule.map(s => s.name));
+  allPeople.delete(myName);
+  const candidates = [];
+  const coverageWarnings = {};
+  const targetBusy = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS]);
+  const offerBusy = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS, ...UNAVAILABLE_SHIFTS]);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const searchStart = addDays(holidayDateObj, -lookWeeks * 7);
+  const searchEnd = addDays(holidayDateObj, lookWeeks * 7);
+  const earliestOfferDate = addDays(today, 1);
+  const startDate = searchStart > earliestOfferDate ? searchStart : earliestOfferDate;
+
+  for (const person of allPeople) {
+    const coverageOnHoliday = getScheduleCoverageInfo(caSchedule, person, holidayDateObj);
+    if (!coverageOnHoliday.hasCoverage) {
+      coverageWarnings[person] = coverageWarnings[person] || coverageOnHoliday;
+      continue;
+    }
+
+    const theirHolidayShifts = getShiftsOnDate(caSchedule, person, holidayDateObj);
+    const theirHolidayShiftSet = new Set(theirHolidayShifts.map(s => s.shift));
+    if (setsIntersect(theirHolidayShiftSet, targetBusy)) {
+      continue;
+    }
+
+    const dayBefore = addDays(holidayDateObj, -1);
+    const dayBeforeShifts = getShiftsOnDate(caSchedule, person, dayBefore);
+    const hasNightBefore = dayBeforeShifts.some(s => NIGHT_CALL_SHIFTS.has(s.shift));
+    if (hasNightBefore) {
+      continue;
+    }
+
+    if (!myWorkShifts.every(shiftRecord => canCoverShift(person, shiftRecord.shift, holidayDateObj))) {
+      continue;
+    }
+
+    const offers = [];
+    let current = new Date(startDate);
+    while (current <= searchEnd) {
+      const currentStr = formatDate(current);
+      if (currentStr === holidayDateStr) {
+        current = addDays(current, 1);
+        continue;
+      }
+
+      const theirShifts = getShiftsOnDate(caSchedule, person, current);
+      for (const shiftRecord of theirShifts) {
+        const theirShift = shiftRecord.shift;
+        if (ICU_SHIFTS.has(theirShift) || UNAVAILABLE_SHIFTS.has(theirShift)) continue;
+        if (!CALL_SHIFTS.has(theirShift) && !DAY_SHIFTS.has(theirShift)) continue;
+        if (!canCoverShift(myName, theirShift, current)) continue;
+
+        const myCoverageOnOfferDate = getScheduleCoverageInfo(caSchedule, myName, current);
+        if (!myCoverageOnOfferDate.hasCoverage) continue;
+
+        const myShiftsOnOfferDate = getShiftsOnDate(caSchedule, myName, current);
+        const myOfferShiftSet = new Set(myShiftsOnOfferDate.map(s => s.shift));
+        if (setsIntersect(myOfferShiftSet, offerBusy)) continue;
+
+        if (NIGHT_CALL_SHIFTS.has(theirShift) && hasPostCallConflict(caSchedule, myName, current)) {
+          continue;
+        }
+
+        const offerHolidayInfo = getHolidayInfo(current);
+        const offerIsHoliday = Boolean(offerHolidayInfo);
+        const targetType = CALL_SHIFTS.has(targetShift) ? 'night' : DAY_SHIFTS.has(targetShift) ? 'day' : 'off';
+        const offerType = CALL_SHIFTS.has(theirShift) ? 'night' : DAY_SHIFTS.has(theirShift) ? 'day' : 'off';
+        let ease = calculateSwapEase(targetType, offerType, prefersNights, person, new Set([theirShift]));
+        if (offerIsHoliday && ease === 'Hard sell') {
+          ease = 'Moderate';
+        }
+
+        offers.push({
+          date: currentStr,
+          shift: theirShift,
+          holidayName: offerHolidayInfo ? offerHolidayInfo.label : '',
+          isHoliday: offerIsHoliday,
+          ease,
+        });
+      }
+      current = addDays(current, 1);
+    }
+
+    offers.sort((a, b) => {
+      if (a.isHoliday !== b.isHoliday) return a.isHoliday ? -1 : 1;
+      const easeOrder = { 'Easy': 0, 'Moderate': 1, 'Hard sell': 2, 'Very hard': 3 };
+      const easeA = easeOrder[a.ease] ?? 99;
+      const easeB = easeOrder[b.ease] ?? 99;
+      if (easeA !== easeB) return easeA - easeB;
+      return a.date.localeCompare(b.date);
+    });
+
+    candidates.push({
+      name: person,
+      date: holidayDateStr,
+      holidayName,
+      myShifts: myWorkShifts.map(s => s.shift),
+      offers,
+      bestOffer: offers[0] || null,
+      isFriend: friends.friends.includes(person),
+      prefersNights: prefersNights.has(person),
+    });
+  }
+
+  candidates.sort((a, b) => {
+    const aHasOffer = a.bestOffer ? 0 : 1;
+    const bHasOffer = b.bestOffer ? 0 : 1;
+    if (aHasOffer !== bHasOffer) return aHasOffer - bHasOffer;
+
+    const aHolidayOffer = a.bestOffer?.isHoliday ? 0 : 1;
+    const bHolidayOffer = b.bestOffer?.isHoliday ? 0 : 1;
+    if (aHolidayOffer !== bHolidayOffer) return aHolidayOffer - bHolidayOffer;
+
+    const easeOrder = { 'Easy': 0, 'Moderate': 1, 'Hard sell': 2, 'Very hard': 3 };
+    const easeA = easeOrder[a.bestOffer?.ease] ?? 99;
+    const easeB = easeOrder[b.bestOffer?.ease] ?? 99;
+    if (easeA !== easeB) return easeA - easeB;
+
+    if (a.isFriend !== b.isFriend) return a.isFriend ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    date: holidayDateStr,
+    holidayName,
+    myShifts: myWorkShifts.map(s => s.shift),
+    candidates,
+    coverageWarnings: Object.values(coverageWarnings),
+    noShift: false,
+  };
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -1724,6 +1995,9 @@ window.SwapFinder = {
   INFO_ONLY_SHIFTS,
   SENIOR_ONLY_SHIFTS,
   CA1_RESTRICTED_SHIFTS,
+  getKnownHolidaysForSchedule,
+  getHolidayInfo,
+  isHolidayDate,
   getPersonScheduleRange,
   getScheduleCoverageInfo,
 
@@ -1749,6 +2023,7 @@ window.SwapFinder = {
   findWeekendSwap,
   findTripCoverage,
   findTripSwapOpportunities,
+  findHolidaySwapCandidates,
   findGoldenWeekends,
   getScheduleSummary,
   generateSwapMessage,

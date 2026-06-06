@@ -314,6 +314,12 @@ function refreshCurrentTab() {
             document.getElementById('weekend-results').innerHTML = '';
             document.getElementById('my-weekend-info').innerHTML = '';
             break;
+        case 'holiday-swap':
+            populateHolidayDropdown();
+            document.getElementById('holiday-results').innerHTML = '';
+            document.getElementById('my-holiday-info').innerHTML = '';
+            document.getElementById('holiday-message').value = '';
+            break;
         case 'trip-planner':
             syncRotationOverridesUI();
             break;
@@ -1879,7 +1885,216 @@ window.selectSwapCandidate = function(idx) {
 
 // generateSwapMessage is provided by swap-finder.js
 
-// Tab 5: Assignments
+// Tab 5: Holiday Swap
+function getHolidayAssignmentOptions() {
+    const holidays = getKnownHolidaysForSchedule(SCHEDULE);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return holidays
+        .map(holiday => {
+            const dateObj = parseDate(holiday.date);
+            const myShifts = MY_NAME ? getShiftsOnDate(SCHEDULE, MY_NAME, dateObj)
+                .filter(s => s.shift && s.shift.startsWith('CA ')) : [];
+            const workShifts = myShifts
+                .filter(s => CALL_SHIFTS.has(s.shift) || DAY_SHIFTS.has(s.shift) || ICU_SHIFTS.has(s.shift))
+                .map(s => s.shift);
+            const status = workShifts.length > 0 ? workShifts.join(', ') : 'no CA shift';
+
+            return {
+                ...holiday,
+                dateObj,
+                status,
+                hasWorkShift: workShifts.length > 0,
+            };
+        })
+        .filter(holiday => holiday.dateObj >= today)
+        .sort((a, b) => {
+            if (a.hasWorkShift !== b.hasWorkShift) return a.hasWorkShift ? -1 : 1;
+            return a.date.localeCompare(b.date);
+        });
+}
+
+function populateHolidayDropdown() {
+    const select = document.getElementById('holiday-select');
+    if (!select) return;
+
+    if (!MY_NAME) {
+        select.innerHTML = '<option value="">Select your name first...</option>';
+        return;
+    }
+
+    const options = getHolidayAssignmentOptions();
+    if (options.length === 0) {
+        select.innerHTML = '<option value="">No upcoming holidays in schedule</option>';
+        return;
+    }
+
+    select.innerHTML = '<option value="">Select holiday...</option>' + options.map(holiday => {
+        const dateLabel = formatDateDisplay(holiday.dateObj);
+        const assignmentFlag = holiday.hasWorkShift ? 'assigned' : 'off';
+        return `<option value="${holiday.date}">${holiday.label} - ${dateLabel} (${assignmentFlag}: ${holiday.status})</option>`;
+    }).join('');
+
+    const firstAssigned = options.find(holiday => holiday.hasWorkShift);
+    if (firstAssigned) {
+        select.value = firstAssigned.date;
+    }
+}
+
+function initHolidaySwapTab() {
+    const weeksSlider = document.getElementById('holiday-weeks');
+    const weeksValue = document.getElementById('holiday-weeks-value');
+
+    populateHolidayDropdown();
+
+    weeksSlider.addEventListener('input', (e) => {
+        weeksValue.textContent = e.target.value;
+    });
+
+    document.getElementById('btn-holiday-search').addEventListener('click', () => {
+        const selectedDate = document.getElementById('holiday-select').value;
+        const weeksToSearch = parseInt(weeksSlider.value);
+        const friendsOnly = document.getElementById('holiday-friends-only').checked;
+        const showCRNA = document.getElementById('holiday-show-crna').checked;
+
+        if (!MY_NAME) {
+            alert('Please select your name first');
+            return;
+        }
+
+        if (!selectedDate) {
+            alert('Please select a holiday');
+            return;
+        }
+
+        renderHolidaySwap(selectedDate, weeksToSearch, friendsOnly, showCRNA);
+    });
+}
+
+function renderHolidaySwap(holidayDate, weeksToSearch, friendsOnly, showCRNA) {
+    showLoading('holiday-results');
+
+    const result = findHolidaySwapCandidates(SCHEDULE, MY_NAME, holidayDate, { lookWeeks: weeksToSearch });
+    const dateObj = parseDate(result.date);
+    const holidayLabel = `${result.holidayName} - ${formatDateDisplay(dateObj)}`;
+
+    if (result.noShift) {
+        document.getElementById('my-holiday-info').innerHTML = `
+            <div class="my-weekend-summary">
+                <strong>${holidayLabel}</strong>
+                <br><small>No swappable CA shift is assigned to ${MY_NAME} on this holiday in the current export.</small>
+            </div>
+        `;
+        document.getElementById('holiday-results').innerHTML =
+            '<p class="warning-message">No holiday shift found to swap away. If QGenda changed, re-export and regenerate the schedule first.</p>';
+        document.getElementById('holiday-message').value = '';
+        hideLoading('holiday-results');
+        return;
+    }
+
+    document.getElementById('my-holiday-info').innerHTML = `
+        <div class="my-weekend-summary">
+            <strong>Your Holiday:</strong> ${holidayLabel}
+            <br><small>${result.myShifts.join(', ')}</small>
+        </div>
+    `;
+
+    let candidates = result.candidates;
+    if (friendsOnly) {
+        candidates = candidates.filter(candidate => getFriends().friends.includes(candidate.name));
+    }
+
+    candidates = candidates.filter(candidate => {
+        const ptype = getPersonType(candidate.name, result.date);
+        if (ptype === 'intern') return false;
+        if (isResident(candidate.name, result.date)) return true;
+        if (ptype === 'fellow') return true;
+        if (ptype === 'crna' && showCRNA) return true;
+        return false;
+    });
+
+    if (candidates.length === 0) {
+        document.getElementById('holiday-results').innerHTML =
+            '<p class="no-data">No resident/fellow holiday swap candidates found. Use "Show CRNAs anyway" only if that pool is realistic.</p>';
+        document.getElementById('holiday-message').value = '';
+        hideLoading('holiday-results');
+        return;
+    }
+
+    window.currentHolidaySwapResult = result;
+    window.currentHolidaySwaps = candidates;
+
+    const warningHtml = buildCoverageWarningHtml(
+        result.coverageWarnings || [],
+        'Some people were omitted because their schedule does not cover the selected holiday.'
+    );
+
+    const friendsData = getFriends();
+    const html = candidates.slice(0, 20).map((candidate, idx) => {
+        const personType = getPersonType(candidate.name, result.date);
+        const typeLabel = getTypeLabel(personType);
+        const typeClass = getTypeClass(personType);
+        const isFriend = friendsData.friends.includes(candidate.name);
+        const offer = candidate.bestOffer;
+        const ease = offer?.ease || 'Hard sell';
+        const easeClass = ease === 'Easy' ? 'ease-easy' :
+                         ease === 'Moderate' ? 'ease-moderate' :
+                         ease === 'Hard sell' ? 'ease-hard' : 'ease-very-hard';
+        const easeBadgeClass = ease === 'Easy' ? 'easy' :
+                              ease === 'Moderate' ? 'moderate' :
+                              ease === 'Hard sell' ? 'hard' : 'very-hard';
+        const offerText = offer
+            ? `${offer.holidayName ? `${offer.holidayName} - ` : ''}${formatDateDisplay(parseDate(offer.date))}: ${offer.shift}`
+            : 'No clean payback shift found in the search window';
+        const offerBadge = offer?.isHoliday ? '<span class="type-badge friend">Holiday-for-holiday</span>' : '';
+
+        return `
+            <div class="swap-card ${easeClass}">
+                <div class="swap-header">
+                    <span class="candidate-name">
+                        ${candidate.name}
+                        ${typeLabel ? `<span class="type-badge ${typeClass}">${typeLabel}</span>` : ''}
+                        ${isFriend ? '<span class="type-badge friend">Friend</span>' : ''}
+                    </span>
+                    <span class="ease-badge ${easeBadgeClass}">${ease}</span>
+                </div>
+                <div class="holiday-swap-body">
+                    <p><strong>They can cover:</strong> ${holidayLabel} (${result.myShifts.join(', ')})</p>
+                    <p><strong>You can offer:</strong> ${offerText} ${offerBadge}</p>
+                    ${candidate.prefersNights ? '<p class="muted">This person is marked as preferring nights.</p>' : ''}
+                </div>
+                <button class="select-btn" onclick="selectHolidaySwapCandidate(${idx})" ${offer ? '' : 'disabled'}>Generate Message</button>
+            </div>
+        `;
+    }).join('');
+
+    document.getElementById('holiday-results').innerHTML = warningHtml + html;
+    hideLoading('holiday-results');
+}
+
+function buildHolidaySwapMessage(candidate, result, offer) {
+    const targetDate = `${result.holidayName} (${formatDateDisplay(parseDate(result.date))})`;
+    const myShift = result.myShifts.join('/');
+
+    if (!offer) {
+        return `Hey ${formatLastName(candidate.name)}, any chance you could cover my ${myShift.replaceAll('CA ', '')} on ${targetDate}? I know holiday coverage is annoying, but I would owe you one.`;
+    }
+
+    const offerDate = `${offer.holidayName ? `${offer.holidayName} ` : ''}${formatDateDisplay(parseDate(offer.date))}`;
+    return `Hey ${formatLastName(candidate.name)}, any chance you could cover my ${myShift.replaceAll('CA ', '')} on ${targetDate}? I can take your ${offer.shift.replace('CA ', '')} on ${offerDate} in return if that helps.`;
+}
+
+window.selectHolidaySwapCandidate = function(idx) {
+    const candidate = window.currentHolidaySwaps?.[idx];
+    const result = window.currentHolidaySwapResult;
+    if (!candidate || !result) return;
+
+    document.getElementById('holiday-message').value = buildHolidaySwapMessage(candidate, result, candidate.bestOffer);
+    document.getElementById('holiday-message').scrollIntoView({ behavior: 'smooth' });
+};
+
+// Tab 6: Assignments
 function initWhosFreeTab() {
     document.getElementById('btn-free-check').addEventListener('click', () => {
         const date = document.getElementById('free-date').value;
@@ -2142,6 +2357,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindRotationOverrideHandlers();
     syncRotationOverridesUI();
     initWeekendSwapTab();
+    initHolidaySwapTab();
     initWhosFreeTab();
     initFriendsTab();
     initLedgerTab();

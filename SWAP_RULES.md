@@ -338,6 +338,7 @@ All swap logic lives in `js/swap-finder.js`:
 | `findWeekendSwap()` | ~530 | Find weekend swap partners |
 | `findTripCoverage()` | ~730 | Find trip coverage options |
 | `findTripSwapOpportunities()` | ~1140 | Find swap opportunities for trip |
+| `findHolidaySwapCandidates()` | ~1660 | Find resident/fellow coverage for holiday assignments |
 
 ---
 

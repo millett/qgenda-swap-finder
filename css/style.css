@@ -294,6 +294,10 @@ nav[role="tablist"] button.active {
   gap: 0.25rem;
 }
 
+.holiday-swap-body p {
+  margin: 0.4rem 0;
+}
+
 .swap-line {
   display: flex;
   align-items: center;
