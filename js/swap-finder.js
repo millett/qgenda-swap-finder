@@ -22,6 +22,7 @@ const NIGHT_CALL_SHIFTS = new Set([
 // Shift categories for swap eligibility
 const CALL_SHIFTS = new Set([
   'CA CLI Day Call',
+  'CA Senior Day Call',
   'CA CLI Night Call',
   'CA Senior Night Call',
   'CA GOR1 Night Call',
@@ -52,6 +53,7 @@ const ICU_SHIFTS = new Set([
 // Shifts that require CA3+ seniority (CA2 and below cannot cover these)
 const SENIOR_ONLY_SHIFTS = new Set([
   'CA Senior Night Call',
+  'CA Senior Day Call',
   'CA ACT',
   'CA Peds ACT',
 ]);
@@ -116,6 +118,14 @@ const DAY_SHIFTS = new Set([
   'CA ACT',
   'CA ENT',
   'CA NORA',
+  'CA APS',
+  'CA APS Late',
+  'CA Intern APMC',
+  'CA Intern Pain Clinic',
+  'CA Resident Admin Day',
+  'CA Library Day',
+  'CA Clin AM/Sim PM',
+  'CA Sim AM/Clin PM',
 ]);
 
 // Shifts that indicate unavailability
@@ -132,6 +142,15 @@ const UNAVAILABLE_SHIFTS = new Set([
   'CA Meeting',
   'CA half-day/meeting',
   'CA ACLS',
+  // Busy daytime assignments that should not be offered as return swaps.
+  'CA APS',
+  'CA APS Late',
+  'CA Intern APMC',
+  'CA Intern Pain Clinic',
+  'CA Resident Admin Day',
+  'CA Library Day',
+  'CA Clin AM/Sim PM',
+  'CA Sim AM/Clin PM',
 ]);
 
 // Informational markers that should not count as real assignments.
@@ -1818,7 +1837,7 @@ function findHolidaySwapCandidates(schedule, myName, holidayDate, options = {}) 
   allPeople.delete(myName);
   const candidates = [];
   const coverageWarnings = {};
-  const targetBusy = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS]);
+  const targetBusy = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS, ...UNAVAILABLE_SHIFTS]);
   const offerBusy = new Set([...CALL_SHIFTS, ...DAY_SHIFTS, ...ICU_SHIFTS, ...UNAVAILABLE_SHIFTS]);
   const today = new Date();
   today.setHours(0, 0, 0, 0);

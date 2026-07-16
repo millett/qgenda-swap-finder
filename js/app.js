@@ -17,7 +17,7 @@ const PERSON_TYPE_OVERRIDES = {
 
 /**
  * Get all person types, using color data from Excel if available
- * @returns {Object} Map of name -> type (ca1, ca2, ca3, fellow, crna, faculty, resident, unknown)
+ * @returns {Object} Map of name -> type (preintern, intern, ca1, ca2, ca3, fellow, crna, faculty, resident, unknown)
  */
 function getPersonTypes() {
     // Use pre-computed data from schedule.js if available
@@ -102,6 +102,7 @@ function applyAcademicPromotion(baseType, onDate) {
     }
 
     const promotions = {
+        'preintern': 'intern',
         'intern': 'ca1',
         'ca1': 'ca2',
         'ca2': 'ca3',
@@ -114,7 +115,7 @@ function applyAcademicPromotion(baseType, onDate) {
  * Get the type of a person
  * @param {string} name
  * @param {string|Date|null} onDate
- * @returns {string} 'ca1' | 'ca2' | 'ca3' | 'fellow' | 'crna' | 'faculty' | 'resident' | 'unknown'
+ * @returns {string} 'preintern' | 'intern' | 'ca1' | 'ca2' | 'ca3' | 'fellow' | 'crna' | 'faculty' | 'resident' | 'unknown'
  */
 function getPersonType(name, onDate = null) {
     const types = getPersonTypes();
@@ -136,7 +137,7 @@ function getPersonType(name, onDate = null) {
  */
 function isResident(name, onDate = null) {
     const type = getPersonType(name, onDate);
-    return type === 'intern' || type === 'ca1' || type === 'ca2' || type === 'ca3' || type === 'resident';
+    return type === 'preintern' || type === 'intern' || type === 'ca1' || type === 'ca2' || type === 'ca3' || type === 'resident';
 }
 
 /**
@@ -146,6 +147,7 @@ function isResident(name, onDate = null) {
  */
 function getTypeLabel(type) {
     const labels = {
+        'preintern': 'Incoming Intern',
         'intern': 'Intern',
         'ca1': 'CA-1',
         'ca2': 'CA-2',
@@ -166,6 +168,7 @@ function getTypeLabel(type) {
  */
 function getTypeClass(type) {
     const classes = {
+        'preintern': 'type-intern',
         'intern': 'type-intern',
         'ca1': 'type-ca1',
         'ca2': 'type-ca2',
@@ -191,29 +194,28 @@ function findMatchingName(targetName, candidates) {
     const normalizedTarget = normalizePersonName(targetName);
     if (!normalizedTarget) return '';
 
-    const exactMatch = candidates.find(name => normalizePersonName(name) === normalizedTarget);
-    if (exactMatch) return exactMatch;
+    const exactMatches = candidates.filter(name => normalizePersonName(name) === normalizedTarget);
+    if (exactMatches.length === 1) return exactMatches[0];
+    if (exactMatches.length > 1) return '';
 
     const targetTokens = normalizedTarget.split(' ').filter(Boolean);
     if (targetTokens.length === 0) return '';
 
-    let bestMatch = '';
-    let bestScore = 0;
-
-    candidates.forEach(name => {
+    const matches = candidates.map(name => {
         const normalizedCandidate = normalizePersonName(name);
         const candidateTokens = normalizedCandidate.split(' ').filter(Boolean);
         const overlap = candidateTokens.filter(token => targetTokens.includes(token)).length;
         const shorterNameFullyMatches = overlap > 0 &&
             (overlap === targetTokens.length || overlap === candidateTokens.length);
 
-        if (shorterNameFullyMatches && overlap > bestScore) {
-            bestMatch = name;
-            bestScore = overlap;
-        }
-    });
+        return shorterNameFullyMatches ? { name, score: overlap } : null;
+    }).filter(Boolean);
 
-    return bestMatch;
+    if (matches.length === 0) return '';
+
+    const bestScore = Math.max(...matches.map(match => match.score));
+    const bestMatches = matches.filter(match => match.score === bestScore);
+    return bestMatches.length === 1 ? bestMatches[0].name : '';
 }
 
 /**
@@ -266,6 +268,9 @@ function populateUserSelector() {
         MY_NAME = '';
         localStorage.removeItem('qgenda_my_name');
     } else if (matchedValue) {
+        if (currentValue && currentValue !== matchedValue) {
+            migrateUserScopedStorage(currentValue, matchedValue);
+        }
         select.value = matchedValue;
         MY_NAME = matchedValue;
         localStorage.setItem('qgenda_my_name', MY_NAME);
@@ -358,10 +363,73 @@ function populateWeekendDropdown() {
 }
 
 // State Management - User-specific storage
-function getUserKey(base) {
-    // Create a storage key specific to the current user
-    const safeUserName = MY_NAME.replace(/[^a-zA-Z0-9]/g, '_');
+const USER_SCOPED_STORAGE_BASES = [
+    'qgenda_friends',
+    'qgenda_ledger',
+    'qgenda_hidden_weekend',
+    'qgenda_hidden_trip',
+    'qgenda_rotation_overrides',
+];
+
+function getUserKeyForName(base, name) {
+    const safeUserName = (name || '').replace(/[^a-zA-Z0-9]/g, '_');
     return `${base}_${safeUserName}`;
+}
+
+function getUserKey(base) {
+    return getUserKeyForName(base, MY_NAME);
+}
+
+function remapStoredName(name, candidates) {
+    return findMatchingName(name, candidates) || name;
+}
+
+function remapStoredNameList(names, candidates) {
+    if (!Array.isArray(names)) return names;
+    return [...new Set(names.map(name => remapStoredName(name, candidates)))];
+}
+
+function migrateUserStoragePayload(base, rawValue, candidates) {
+    try {
+        const parsed = JSON.parse(rawValue);
+
+        if (base === 'qgenda_friends') {
+            parsed.friends = remapStoredNameList(parsed.friends || [], candidates);
+            parsed.prefers_nights = remapStoredNameList(parsed.prefers_nights || [], candidates);
+            parsed.good_samaritans = remapStoredNameList(parsed.good_samaritans || [], candidates);
+
+            const notes = {};
+            Object.entries(parsed.notes || {}).forEach(([name, note]) => {
+                notes[remapStoredName(name, candidates)] = note;
+            });
+            parsed.notes = notes;
+        } else if (base === 'qgenda_ledger' && Array.isArray(parsed.debts)) {
+            parsed.debts = parsed.debts.map(debt => ({
+                ...debt,
+                person: remapStoredName(debt.person, candidates),
+            }));
+        } else if (base === 'qgenda_hidden_weekend' || base === 'qgenda_hidden_trip') {
+            return JSON.stringify(remapStoredNameList(parsed, candidates));
+        }
+
+        return JSON.stringify(parsed);
+    } catch {
+        return rawValue;
+    }
+}
+
+function migrateUserScopedStorage(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+
+    const candidates = getAllResidentNames(true);
+    USER_SCOPED_STORAGE_BASES.forEach(base => {
+        const oldKey = getUserKeyForName(base, oldName);
+        const newKey = getUserKeyForName(base, newName);
+        const oldValue = localStorage.getItem(oldKey);
+
+        if (oldValue === null || localStorage.getItem(newKey) !== null) return;
+        localStorage.setItem(newKey, migrateUserStoragePayload(base, oldValue, candidates));
+    });
 }
 
 function getHiddenCandidates(key) {

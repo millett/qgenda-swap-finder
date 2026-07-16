@@ -349,3 +349,4 @@ All swap logic lives in `js/swap-finder.js`:
 | 2026-02-02 | Initial documentation created |
 | 2026-02-02 | Added SENIOR_ONLY_SHIFTS, seniority eligibility checks |
 | 2026-04-08 | Restricted fellows to specialty-specific exception coverage (CV/APS/ICU call only) and downgraded fellow swap suggestions to Very hard |
+| 2026-07-16 | Added QGenda normalization for Senior Day Call and trainee daytime assignments; holiday candidates now exclude unavailable residents |

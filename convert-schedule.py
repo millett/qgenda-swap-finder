@@ -23,11 +23,16 @@ from openpyxl.styles import PatternFill
 # Use shift prefix to determine resident/faculty/crna, then use color for year level
 #
 # Verified mappings from user:
+#   Incoming intern (dark blue): 000066CC
 #   CA1 (purple): 009933FF (Koenig)
 #   CA2 (cyan): 0000FFFF (Millett) - NOTE: attendings also use this color!
 #   CA3 (teal): 0099CCCC (Yeker)
 #   CRNA (light yellow-green): 00FFFF99 (Novelli) - NOTE: CRNAs can have CA shifts too!
 COLOR_TO_YEAR = {
+    # Incoming intern = Dark blue. The app promotes this baseline to intern on July 1.
+    '000066CC': 'preintern',
+    'FF0066CC': 'preintern',
+
     # Intern = Orange
     '00FF9933': 'intern',
     'FFFF9933': 'intern',
@@ -56,6 +61,14 @@ SHIFT_NORMALIZATION = {
     'GOR 1 Day Call': 'CA GOR1 Day Call',
     'GOR 2 Day Call': 'CA GOR2 Day Call',
     'Cart Day Call': 'CA CART Day Call',
+    'Senior Day Call': 'CA Senior Day Call',
+    'APS': 'CA APS',
+    'APS Late': 'CA APS Late',
+    'Intern APMC': 'CA Intern APMC',
+    'Intern Pain Clinic': 'CA Intern Pain Clinic',
+    'Resident Admin Day': 'CA Resident Admin Day',
+    'Clin AM/Sim PM': 'CA Clin AM/Sim PM',
+    'Sim AM/Clin PM': 'CA Sim AM/Clin PM',
 }
 
 SHIFT_PREFIXES = ('CA ', 'CRNA', 'Faculty', 'Fellow')
@@ -82,7 +95,7 @@ def get_cell_color(cell):
 
 
 def get_year_level_from_color(color_rgb):
-    """Get resident year level (ca1/ca2/ca3) from cell color.
+    """Get resident baseline year level from cell color.
     Returns None if color doesn't map to a known year level."""
     if not color_rgb:
         return None
@@ -313,7 +326,7 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
     js_lines.append("")
 
     # Add person types mapping
-    js_lines.append("// Person types: intern, ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)")
+    js_lines.append("// Person types: preintern, intern, ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)")
     js_lines.append("const PERSON_TYPES_DATA = {")
     for name, ptype in sorted(person_types.items()):
         escaped_name = name.replace('"', '\\"')
