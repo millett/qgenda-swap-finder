@@ -350,3 +350,15 @@ All swap logic lives in `js/swap-finder.js`:
 | 2026-02-02 | Added SENIOR_ONLY_SHIFTS, seniority eligibility checks |
 | 2026-04-08 | Restricted fellows to specialty-specific exception coverage (CV/APS/ICU call only) and downgraded fellow swap suggestions to Very hard |
 | 2026-07-16 | Added QGenda normalization for Senior Day Call and trainee daytime assignments; holiday candidates now exclude unavailable residents |
+
+
+## Availability and Summary Accuracy
+
+- My Schedule counts exactly the selected number of days, starting today. Dates outside a person's exported range are unknown and are excluded from days off and weekly off-day totals.
+- Automatic post-call notes follow in-hospital overnight calls only. Day and home call do not imply a guaranteed post-call day.
+- Golden weekends require coverage from Friday through Sunday, no Friday overnight call, and no work or post-call markers on either weekend day. Vacation, holiday, and excused days are compatible; unknown assignments are not assumed free.
+- The Assignments availability view excludes any real assignment and prior-night in-hospital call. Request-only markers are ignored.
+
+- `CA ICU Off` is an off/status marker: it is not a swappable ICU assignment. It can be compatible with a golden weekend, but is not offered as coverage availability.
+- Resident year levels remain tied to the export cohort across January 1. Export metadata records the promotion date so already-current year levels can explicitly disable a second promotion.
+- Trip coverage checks every work assignment on the requested date and next-day recovery after an in-hospital overnight shift. CRNA and fellow assignments also block availability.

@@ -10,6 +10,9 @@ If no input file is specified, defaults to schedule.xlsx in the same directory.
 
 import sys
 import re
+import json
+import os
+import tempfile
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -146,6 +149,36 @@ def score_name_text(text: str) -> int:
     return score
 
 
+def date_header(row):
+    """Recognize calendar headers only; never treat print timestamps as dates."""
+    dates = {}
+    for day_idx, (col, _) in enumerate(DAY_COLUMN_PAIRS):
+        if col >= len(row) or pd.isna(row.iloc[col]):
+            continue
+        value = row.iloc[col]
+        if isinstance(value, (datetime, pd.Timestamp)) or re.fullmatch(
+                r'[A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2}(?: 00:00:00)?', str(value).strip()):
+            dates[day_idx] = pd.to_datetime(value).normalize()
+    return dates
+
+
+def roster_names(ws):
+    """Use the export's abbreviation directory to keep stable, unambiguous names."""
+    names = {}
+    in_roster = False
+    for row in ws.iter_rows(values_only=True):
+        if row[:3] == ('Last Name', 'First Name', 'Abbr'):
+            in_roster = True
+            continue
+        if in_roster and all(isinstance(value, str) and value.strip() for value in row[:3]):
+            last, first, abbreviation = (value.strip() for value in row[:3])
+            canonical = f'{last}, {first}'
+            if abbreviation in names and names[abbreviation] != canonical:
+                raise ValueError(f'Ambiguous roster abbreviation: {abbreviation}')
+            names[abbreviation] = canonical
+    return names
+
+
 def detect_column_orientation(df: pd.DataFrame) -> tuple[int, int]:
     """Detect whether each day pair is name/shift or shift/name."""
     current_dates = {}
@@ -154,17 +187,12 @@ def detect_column_orientation(df: pd.DataFrame) -> tuple[int, int]:
     samples = 0
 
     for _, row in df.iterrows():
-        try:
-            if pd.notna(row[0]) and '202' in str(row[0]):
-                for day_idx, col in enumerate([0, 2, 4, 6, 8, 10, 12]):
-                    if pd.notna(row[col]):
-                        try:
-                            current_dates[day_idx] = pd.to_datetime(row[col])
-                        except:
-                            pass
-                continue
-        except:
-            pass
+        header = date_header(row)
+        if header:
+            current_dates = header
+            continue
+        if row.iloc[0] in ('Last Name', 'Schedule Notes:', 'Phone Numbers'):
+            break
 
         for day_idx, (first_col, second_col) in enumerate(DAY_COLUMN_PAIRS):
             if day_idx not in current_dates:
@@ -197,6 +225,7 @@ def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
     # Load workbook with openpyxl to get colors
     wb = load_workbook(file_path, data_only=True)
     ws = wb.active
+    canonical_names = roster_names(ws)
 
     # Also load with pandas for easier data handling
     df = pd.read_excel(file_path, header=None, engine='openpyxl')
@@ -209,25 +238,21 @@ def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
     for idx, row in df.iterrows():
         excel_row = idx + 1  # Excel rows are 1-indexed
 
-        # Check if this is a date header row
-        try:
-            if pd.notna(row[0]) and '202' in str(row[0]):
-                for day_idx, col in enumerate([0, 2, 4, 6, 8, 10, 12]):
-                    if pd.notna(row[col]):
-                        try:
-                            current_dates[day_idx] = pd.to_datetime(row[col])
-                        except:
-                            pass
-                continue
-        except:
-            pass
+        if row.iloc[0] in ('Last Name', 'Schedule Notes:', 'Phone Numbers'):
+            break
+        header = date_header(row)
+        if header:
+            # Clear dates omitted from a partial final week.
+            current_dates = header
+            continue
 
         # Process data rows
         for day_idx, (first_col, second_col) in enumerate(DAY_COLUMN_PAIRS):
             name_col = first_col + name_offset
             shift_col = first_col + shift_offset
             if day_idx in current_dates and pd.notna(row[name_col]) and pd.notna(row[shift_col]):
-                name = str(row[name_col]).strip()
+                raw_name = str(row[name_col]).strip()
+                name = canonical_names.get(raw_name, raw_name)
                 shift = str(row[shift_col]).strip()
                 skip_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Printed']
                 if name and shift and not any(s in name for s in skip_names):
@@ -254,26 +279,21 @@ def parse_qgenda_excel(file_path: Path) -> tuple[pd.DataFrame, dict]:
 def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Path, input_file: Path):
     """Convert DataFrame to JavaScript format and write to file."""
     # Normalize known CA shifts that lack the "CA " prefix in QGenda exports
+    if df.empty or not {'date', 'name', 'shift'}.issubset(df.columns):
+        raise ValueError('No schedule entries parsed; existing schedule was not changed.')
     df = df.copy()
     df['shift'] = df['shift'].apply(lambda s: SHIFT_NORMALIZATION.get(s, s) if isinstance(s, str) else s)
-
-    # Include CA, CRNA, Faculty, and Fellow shifts for proper classification
-    valid_prefixes = ('CA ', 'CRNA', 'Faculty', 'Fellow')
-    filtered_shifts = df[df['shift'].str.startswith(valid_prefixes, na=False)].copy()
-
-    # Sort by date
-    filtered_shifts = filtered_shifts.sort_values('date')
 
     # Classify people by SHIFT PREFIX first, then use color for year level
     # This is because colors are shared between residents and attendings
     person_types = {}
 
-    for name in filtered_shifts['name'].unique():
-        person_shifts = filtered_shifts[filtered_shifts['name'] == name]['shift'].tolist()
+    for name in df['name'].unique():
+        person_shifts = df[df['name'] == name]['shift'].tolist()
         has_ca = any(s.startswith('CA ') for s in person_shifts)
         has_crna = any('CRNA' in s for s in person_shifts)
         has_faculty = any(s.startswith('Faculty') for s in person_shifts)
-        has_fellow = any(s.startswith('Fellow') for s in person_shifts)
+        has_fellow = any('fellow' in s.lower() for s in person_shifts)
 
         color = person_colors.get(name)
 
@@ -294,22 +314,38 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
             else:
                 person_types[name] = 'resident'  # Unknown year level
 
+    # Retain every assignment for identified staff, including unprefixed work.
+    # Unknown resident labels remain visible to the app's data-quality audit.
+    filtered_shifts = df[df['name'].isin(person_types)].copy()
+    prefixes = {'faculty': 'Faculty ', 'crna': 'CRNA ', 'fellow': 'Fellow '}
+    def normalize_assignment(row):
+        shift = row['shift']
+        if shift.startswith(('CA ', 'CRNA', 'Faculty', 'Fellow')):
+            return shift
+        return prefixes.get(person_types[row['name']], 'CA ') + shift
+    if filtered_shifts.empty:
+        raise ValueError('No recognized schedule entries; existing schedule was not changed.')
+    filtered_shifts['shift'] = filtered_shifts.apply(normalize_assignment, axis=1)
+    filtered_shifts = filtered_shifts.drop_duplicates(subset=['date', 'name', 'shift'])
+    filtered_shifts = filtered_shifts.sort_values(['date', 'name', 'shift'])
+
     # Generate timestamp
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     date_start = filtered_shifts['date'].min().strftime('%Y-%m-%d') if len(filtered_shifts) else ''
     date_end = filtered_shifts['date'].max().strftime('%Y-%m-%d') if len(filtered_shifts) else ''
-    source_name = input_file.name.replace('"', '\\"')
+    source_name = json.dumps(input_file.name)
 
     # Build JavaScript content
     js_lines = [
         f"// Generated from {input_file.name}",
         f"// Last updated: {timestamp}",
         "const SCHEDULE_METADATA = {",
-        f'  sourceFile: "{source_name}",',
+        f'  sourceFile: {source_name},',
         f'  lastUpdated: "{timestamp}",',
         f'  dateStart: "{date_start}",',
         f'  dateEnd: "{date_end}",',
         f'  recordCount: {len(filtered_shifts)},',
+        '  personTypePromotionDate: "2026-07-01",',
         "};",
         "",
         "const SCHEDULE = ["
@@ -318,9 +354,8 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
     # Add data rows
     for _, row in filtered_shifts.iterrows():
         date_str = row['date'].strftime('%Y-%m-%d')
-        name = row['name'].replace('"', '\\"')  # Escape quotes
-        shift = row['shift'].replace('"', '\\"')
-        js_lines.append(f'  {{ date: "{date_str}", name: "{name}", shift: "{shift}" }},')
+        record = {'date': date_str, 'name': row['name'], 'shift': row['shift']}
+        js_lines.append('  ' + json.dumps(record, ensure_ascii=False) + ',')
 
     js_lines.append("];")
     js_lines.append("")
@@ -329,12 +364,22 @@ def convert_to_javascript(df: pd.DataFrame, person_colors: dict, output_path: Pa
     js_lines.append("// Person types: preintern, intern, ca1, ca2, ca3, fellow, crna, faculty, resident (unknown year)")
     js_lines.append("const PERSON_TYPES_DATA = {")
     for name, ptype in sorted(person_types.items()):
-        escaped_name = name.replace('"', '\\"')
-        js_lines.append(f'  "{escaped_name}": "{ptype}",')
+        js_lines.append(f'  {json.dumps(name, ensure_ascii=False)}: {json.dumps(ptype)},')
     js_lines.append("};")
 
-    # Write to file
-    output_path.write_text('\n'.join(js_lines))
+    # Install atomically so a failed write cannot truncate the working schedule.
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=output_path.parent,
+                                     suffix='.tmp', delete=False) as handle:
+        temporary_path = Path(handle.name)
+        try:
+            handle.write('\n'.join(js_lines))
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(temporary_path, output_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
     # Print residents with unknown year level for debugging
     unknown_year = [n for n, t in person_types.items() if t == 'resident']

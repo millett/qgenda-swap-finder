@@ -1,0 +1,25 @@
+{
+  "name": "qgenda",
+  "version": "1.0.0",
+  "description": "Static web app for anesthesia residents to find shift swap candidates. Open `index.html` in any browser - no server required.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "ui-smoke": "playwright test tests/ui-smoke.spec.js --project=chromium"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/millett/qgenda-swap-finder.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/millett/qgenda-swap-finder/issues"
+  },
+  "homepage": "https://github.com/millett/qgenda-swap-finder#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.1",
+    "playwright": "^1.58.1"
+  }
+}
