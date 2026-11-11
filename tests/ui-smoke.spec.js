@@ -90,10 +90,18 @@ test.describe('QGenda UI smoke', () => {
     await expect(page.locator('#upcoming-shifts')).toContainText('Select your name');
   });
 
-  test('My Schedule renders metrics and table', async ({ page }) => {
+  test('My Schedule defaults to calendar and supports day details, navigation, and list', async ({ page }) => {
     await openApp(page);
+    await expect(page.locator('.schedule-calendar')).toBeVisible();
+    await page.locator('[data-date="2026-11-27"]').click();
+    await expect(page.locator('.calendar-detail')).toContainText('Post-call if worked past 11 p.m.');
+    await page.getByRole('button', { name: 'Next month', exact: true }).click();
+    await expect(page.locator('.calendar-toolbar h3')).toHaveText('December 2026');
+    await page.getByRole('button', { name: 'List', exact: true }).click();
     await expect(page.locator('#upcoming-shifts table')).toBeVisible();
-    await expect(page.locator('#upcoming-shifts tbody tr').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Calendar', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.locator('.schedule-calendar').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await expect(page.locator('#next-call-date')).not.toHaveText('-');
   });
 

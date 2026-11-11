@@ -1435,6 +1435,37 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
  * @param {number} daysAhead - Days to look ahead
  * @returns {Object} Object with upcoming_shifts, stats, and weekly_breakdown
  */
+// Display context only: these notes never change swap eligibility or off-day totals.
+function getCallContext(schedule, name, date) {
+  const shifts = getShiftsOnDate(schedule, name, date);
+  const yesterday = getShiftsOnDate(schedule, name, addDays(date, -1));
+  const tomorrow = getShiftsOnDate(schedule, name, addDays(date, 1));
+  const notes = [];
+  if (tomorrow.some(s => CALL_SHIFTS.has(s.shift))) notes.push('Pre-call');
+  if (shifts.some(s => ['CA Post Call', 'CA Home Post Call'].includes(s.shift)) ||
+      yesterday.some(s => NIGHT_CALL_SHIFTS.has(s.shift))) {
+    notes.push('Post-call');
+  } else if (yesterday.some(s => s.shift === 'CA COMER Call')) {
+    notes.push('Post-call if worked past 11 p.m. (Comer)');
+  } else if (yesterday.some(s => ['CA CV Call', 'CA GOR3', 'CA GOR4'].includes(s.shift))) {
+    notes.push('After home call — recovery depends on overnight work');
+  }
+  return notes;
+}
+
+function getScheduleDays(schedule, name, start, end) {
+  const days = [];
+  for (let date = new Date(start); date <= end; date = addDays(date, 1)) {
+    days.push({
+      date,
+      known: getScheduleCoverageInfo(schedule, name, date).hasCoverage,
+      shifts: getShiftsOnDate(schedule, name, date).filter(s => s.shift && !INFO_ONLY_SHIFTS.has(s.shift)),
+      notes: getCallContext(schedule, name, date)
+    });
+  }
+  return days;
+}
+
 function getScheduleSummary(schedule, myName, daysAhead = 30) {
   const assignments = schedule.filter(s => s.shift && !INFO_ONLY_SHIFTS.has(s.shift));
 
@@ -1443,13 +1474,6 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
   const endDate = addDays(today, Math.max(1, daysAhead) - 1);
   const coverage = getScheduleCoverageInfo(schedule, myName, today, endDate);
 
-  // Pre-calculate call-adjacent dates for pre/post-call notes
-  const myCallShifts = assignments.filter(s => s.name === myName && CALL_SHIFTS.has(s.shift));
-  const callDates = new Set(myCallShifts.map(s => s.date));
-  const preCallDates = new Set([...callDates].map(d => formatDate(addDays(parseDate(d), -1))));
-  const postCallDates = new Set(myCallShifts.filter(s => NIGHT_CALL_SHIFTS.has(s.shift))
-    .map(s => formatDate(addDays(parseDate(s.date), 1))));
-
   // Get my shifts in range
   const myShifts = [];
   let current = today;
@@ -1457,10 +1481,7 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
     const shiftsOnDay = getShiftsOnDate(assignments, myName, current);
     shiftsOnDay.forEach(s => {
       const dateObj = parseDate(s.date);
-      const dateKey = formatDate(dateObj);
-      const tags = [];
-      if (preCallDates.has(dateKey)) tags.push('Pre-call');
-      if (postCallDates.has(dateKey)) tags.push('Post-call');
+      const tags = getCallContext(schedule, myName, dateObj);
       myShifts.push({
         date: dateObj,
         shift: s.shift,

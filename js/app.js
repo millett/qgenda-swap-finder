@@ -1038,6 +1038,78 @@ function renderVacationEligibility(startDate, endDate, dataWarning) {
     `;
 }
 
+// Calendar state survives range and resident changes; selected details are always rebuilt.
+let scheduleView = 'calendar';
+let scheduleMonth = null;
+let scheduleSelectedDate = null;
+function scheduleEscape(value) {
+    return String(value).replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+}
+function renderScheduleView(daysAhead) {
+    const root = document.getElementById('upcoming-shifts');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const end = addDays(today, Math.max(1, daysAhead) - 1);
+    const firstMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+    if (!scheduleMonth || scheduleMonth < firstMonth || scheduleMonth > lastMonth) scheduleMonth = firstMonth;
+    const days = getScheduleDays(SCHEDULE, MY_NAME, today, end);
+    const byDate = new Map(days.map(day => [formatDate(day.date), day]));
+    const monthDays = days.filter(day => day.date.getMonth() === scheduleMonth.getMonth() && day.date.getFullYear() === scheduleMonth.getFullYear());
+    if (!monthDays.some(day => formatDate(day.date) === scheduleSelectedDate)) scheduleSelectedDate = formatDate(monthDays[0].date);
+    const label = date => date.toLocaleDateString(undefined, {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+    const notes = day => day.notes.map(note => `<span class="calendar-note">${scheduleEscape(note)}</span>`).join('');
+    const shifts = day => day.shifts.length ? day.shifts.map(shift =>
+        `<span class="calendar-shift shift-${classifyShift(shift.shift)}">${scheduleEscape(shift.shift.replace(/^CA /, ''))}</span>`).join('') :
+        `<span class="calendar-empty">${day.known ? 'Off' : 'No data'}</span>`;
+    let html = `<div class="schedule-view-controls" role="group" aria-label="Schedule view">
+      <button type="button" data-view="calendar" aria-pressed="${scheduleView === 'calendar'}">Calendar</button>
+      <button type="button" data-view="list" aria-pressed="${scheduleView === 'list'}">List</button></div>
+      <p class="calendar-range muted">${formatDateDisplay(today)} – ${formatDateDisplay(end)} · Totals above cover this range.</p>`;
+    if (scheduleView === 'list') {
+        html += `<div class="table-scroll"><table><thead><tr><th>Date</th><th>Shifts</th><th>Notes</th></tr></thead><tbody>${days.map(day =>
+            `<tr><td>${formatDateDisplay(day.date)}</td><td>${shifts(day)}</td><td>${notes(day)}</td></tr>`).join('')}</tbody></table></div>`;
+    } else {
+        html += `<div class="calendar-toolbar"><button type="button" data-month="-1" aria-label="Previous month" ${scheduleMonth <= firstMonth ? 'disabled' : ''}>‹</button>
+          <h3 aria-live="polite">${scheduleMonth.toLocaleDateString(undefined, {month:'long', year:'numeric'})}</h3>
+          <button type="button" data-month="1" aria-label="Next month" ${scheduleMonth >= lastMonth ? 'disabled' : ''}>›</button></div>
+          <div class="calendar-legend"><span class="calendar-shift shift-call">Call</span><span class="calendar-shift shift-day">Day shift</span><span class="calendar-shift shift-off">Off / recovery</span></div>
+          <div class="schedule-calendar">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<div class="calendar-weekday">${d}</div>`).join('')}`;
+        const gridStart = addDays(scheduleMonth, -(scheduleMonth.getDay() + 6) % 7);
+        const monthEnd = new Date(scheduleMonth.getFullYear(), scheduleMonth.getMonth() + 1, 0);
+        const cells = Math.ceil(((scheduleMonth.getDay() + 6) % 7 + monthEnd.getDate()) / 7) * 7;
+        for (let i = 0; i < cells; i++) {
+            const date = addDays(gridStart, i), key = formatDate(date), day = byDate.get(key);
+            const active = day && date.getMonth() === scheduleMonth.getMonth();
+            const isToday = isSameDay(date, today);
+            if (!active) {
+                html += `<div class="calendar-day calendar-outside" aria-label="${scheduleEscape(label(date))}, outside selected range"><span>${date.getDate()}</span></div>`;
+            } else {
+                const description = [label(date), ...day.shifts.map(s => s.shift), ...day.notes, ...(!day.shifts.length ? [day.known ? 'Off' : 'No data'] : [])].join(', ');
+                html += `<button type="button" class="calendar-day${isToday ? ' calendar-today' : ''}" data-date="${key}" aria-label="${scheduleEscape(description)}" aria-pressed="${key === scheduleSelectedDate}"${isToday ? ' aria-current="date"' : ''}>
+                  <span class="calendar-date">${date.getDate()}${isToday ? '<small>Today</small>' : ''}</span>${shifts(day)}${notes(day)}</button>`;
+            }
+        }
+        const selected = byDate.get(scheduleSelectedDate);
+        html += `</div><section class="calendar-detail" aria-live="polite" aria-label="Selected day"><h4>${label(selected.date)}</h4>${shifts(selected)}${notes(selected)}${!selected.known ? '<p class="muted">Outside the available export. Availability is unknown.</p>' : ''}</section>`;
+    }
+    root.innerHTML = html;
+    root.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
+        scheduleView = button.dataset.view; renderScheduleView(daysAhead);
+        root.querySelector(`[data-view="${scheduleView}"]`).focus();
+    }));
+    root.querySelectorAll('[data-month]').forEach(button => button.addEventListener('click', () => {
+        const direction = button.dataset.month;
+        scheduleMonth = new Date(scheduleMonth.getFullYear(), scheduleMonth.getMonth() + Number(direction), 1);
+        renderScheduleView(daysAhead);
+        const next = root.querySelector(`[data-month="${direction}"]`);
+        (next.disabled ? root.querySelector('[data-date]') : next).focus();
+    }));
+    root.querySelectorAll('[data-date]').forEach(button => button.addEventListener('click', () => {
+        scheduleSelectedDate = button.dataset.date; renderScheduleView(daysAhead);
+        root.querySelector(`[data-date="${scheduleSelectedDate}"]`).focus({preventScroll:true});
+    }));
+}
+
 // Tab 1: My Schedule
 function initMyScheduleTab() {
     const daysSlider = document.getElementById('schedule-days');
@@ -1081,38 +1153,7 @@ function renderMySchedule(daysAhead) {
     document.getElementById('day-shifts').textContent = stats.total_day_shifts;
     document.getElementById('days-off').textContent = stats.unknown_days === daysAhead ? 'Unknown' : stats.days_off;
 
-    // Render upcoming shifts
-    const shiftsHtml = summary.upcoming_shifts.map(shift => {
-        const icon = NIGHT_CALL_SHIFTS.has(shift.shift) ? '🌙' :
-                     shift.shift_type === 'call' ? '📞' :
-                     shift.shift_type === 'off' ? '🏖️' : '☀️';
-        const dateStr = formatDateDisplay(shift.date);
-        const tags = (shift.tags && shift.tags.length > 0)
-            ? `<span class="shift-tags">${shift.tags.join(', ')}</span>`
-            : '<span class="muted">-</span>';
-        return `
-            <tr>
-                <td>${icon} ${dateStr}</td>
-                <td>${shift.shift_type}</td>
-                <td>${shift.shift}</td>
-                <td>${tags}</td>
-            </tr>
-        `;
-    }).join('');
-
-    document.getElementById('upcoming-shifts').innerHTML = `
-        <div class="table-scroll"><table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Shift</th>
-                    <th>Notes</th>
-                </tr>
-            </thead>
-            <tbody>${shiftsHtml || '<tr><td colspan="4">No upcoming shifts in available data</td></tr>'}</tbody>
-        </table></div>
-    `;
+    renderScheduleView(daysAhead);
 
     // Render weekly breakdown
     const weeklyHtml = summary.weekly_breakdown.map(week => `

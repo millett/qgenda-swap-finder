@@ -3,17 +3,22 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function load() {
+function load(today = '2026-11-10T12:00:00') {
+  class FixedDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [today])); }
+  }
   const elements = new Map();
   const getElementById = id => {
     if (!elements.has(id)) elements.set(id, {
       innerHTML: '', textContent: '', value: '',
       replaceChildren() { this.innerHTML = ''; },
-      querySelector() { return null; }
+      querySelector() { return null; },
+      querySelectorAll() { return []; }
     });
     return elements.get(id);
   };
   const context = vm.createContext({
+    Date: FixedDate,
     window: {},
     document: { getElementById, addEventListener() {} },
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} }
@@ -126,4 +131,32 @@ test('trip coverage checks all assignments and overnight recovery, including CRN
   context.getFriends = () => ({ friends: [] });
   const candidates = context.findCoverageCandidates(schedule, 'Me', ['2026-11-11']);
   assert.deepEqual(Array.from(candidates, c => c.name), ['Senior free']);
+});
+
+
+test('calendar groups assignments, aligns Mondays, and retains notes in the list', () => {
+  const { context, getElementById: el } = load();
+  context.SCHEDULE = [
+    {name:'Me', date:'2026-11-09', shift:'CA GOR'},
+    {name:'Me', date:'2026-11-26', shift:'CA COMER Call'},
+    {name:'Me', date:'2027-02-01', shift:'CA GOR'}
+  ];
+  vm.runInContext("MY_NAME = 'Me'", context);
+  context.renderScheduleView(90);
+  let html = el('upcoming-shifts').innerHTML;
+  assert.match(html, /November 2026/);
+  assert.ok(html.indexOf('Monday, October 26, 2026') < html.indexOf('Sunday, November 1, 2026'));
+  assert.match(html, /data-date="2026-11-27"[^>]*Post-call if worked past 11 p.m./);
+  assert.match(html, /aria-current="date"/);
+  vm.runInContext("scheduleMonth = new Date(2027, 0, 1)", context);
+  context.renderScheduleView(90);
+  assert.match(el('upcoming-shifts').innerHTML, /January 2027/);
+  context.renderScheduleView(7);
+  assert.match(el('upcoming-shifts').innerHTML, /November 2026/);
+  assert.doesNotMatch(el('upcoming-shifts').innerHTML, /data-date="2026-11-17"/);
+  vm.runInContext("scheduleView = 'list'", context);
+  context.renderScheduleView(30);
+  html = el('upcoming-shifts').innerHTML;
+  assert.match(html, /<table>/);
+  assert.match(html, /Post-call if worked past 11 p.m./);
 });

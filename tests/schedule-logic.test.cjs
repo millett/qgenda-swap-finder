@@ -70,3 +70,16 @@ test('Friday coverage is required before calling a weekend golden', () => {
   assert.equal(result.i_am_off, false);
   assert.equal(result.self_coverage_warning.kind, 'before_start');
 });
+
+test('calendar retains post-call context on empty days and distinguishes conditional recovery', () => {
+  const app = load();
+  const schedule = [entry('2026-11-09', 'CA COMER Call'), entry('2026-11-12', 'CA Senior Night Call'), entry('2026-11-16')];
+  const days = app.getScheduleDays(schedule, 'Me', new Date('2026-11-10T00:00:00'), new Date('2026-11-17T00:00:00'));
+  assert.equal(days[0].shifts.length, 0);
+  assert.equal(days[0].known, true);
+  assert.match(days[0].notes.join(), /Post-call if worked past 11 p.m./);
+  assert.equal(days[3].notes.includes('Post-call'), true);
+  assert.equal(days[7].known, false);
+  const explicit = app.getCallContext([entry('2026-11-09', 'CA Home Post Call')], 'Me', new Date('2026-11-09T00:00:00'));
+  assert.equal(explicit.includes('Post-call'), true);
+});
