@@ -1042,19 +1042,14 @@ function renderVacationEligibility(startDate, endDate, dataWarning) {
 function initMyScheduleTab() {
     const daysSlider = document.getElementById('schedule-days');
     const daysValue = document.getElementById('days-ahead-value');
-    const refreshBtn = document.getElementById('btn-refresh-schedule');
-
     daysSlider.addEventListener('input', (e) => {
         daysValue.textContent = e.target.value;
-    });
-
-    refreshBtn.addEventListener('click', () => {
-        const days = parseInt(daysSlider.value);
-        renderMySchedule(days);
+        renderMySchedule(parseInt(e.target.value, 10));
     });
 
     // Initial render
-    renderMySchedule(30);
+    daysValue.textContent = daysSlider.value;
+    renderMySchedule(parseInt(daysSlider.value, 10));
 }
 
 function renderMySchedule(daysAhead) {
