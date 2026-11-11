@@ -7,8 +7,9 @@ let MY_NAME = localStorage.getItem('qgenda_my_name') || "";
 // Fallback classification for people not in the color data.
 // Academic-year promotions are applied dynamically based on the date being viewed.
 
-const ACADEMIC_YEAR_PROMOTION_MONTH = 6; // July (0-indexed)
-const ACADEMIC_YEAR_PROMOTION_DAY = 1;
+// These export colors use the pre-July-2026 baseline (see convert-schedule.py).
+// Anchor promotion to the cohort, never to the year of the date being viewed.
+const ACADEMIC_YEAR_PROMOTION_DATE = '2026-07-01';
 const PERSON_TYPE_OVERRIDES = {
     "JEFFREY": [
         { effectiveDate: "2026-07-01", type: "faculty" }
@@ -95,7 +96,10 @@ function getOverrideType(name, onDate) {
 
 function applyAcademicPromotion(baseType, onDate) {
     const date = coerceDateValue(onDate);
-    const promotionDate = new Date(date.getFullYear(), ACADEMIC_YEAR_PROMOTION_MONTH, ACADEMIC_YEAR_PROMOTION_DAY);
+    const metadata = typeof SCHEDULE_METADATA !== 'undefined' ? SCHEDULE_METADATA : {};
+    // A null value means the export already contains current year levels.
+    if (metadata.personTypePromotionDate === null) return baseType;
+    const promotionDate = parseDate(metadata.personTypePromotionDate || ACADEMIC_YEAR_PROMOTION_DATE);
 
     if (date < promotionDate) {
         return baseType;
@@ -288,7 +292,11 @@ function initUserSelector() {
     populateUserSelector();
 
     // Listen for checkbox changes to repopulate dropdown
-    showCRNACheckbox.addEventListener('change', populateUserSelector);
+    showCRNACheckbox.addEventListener('change', () => {
+        const previousName = MY_NAME;
+        populateUserSelector();
+        if (MY_NAME !== previousName) refreshCurrentTab();
+    });
 
     select.addEventListener('change', (e) => {
         MY_NAME = e.target.value;
@@ -307,38 +315,23 @@ function initUserSelector() {
  * Refresh the current tab's data after user change
  */
 function refreshCurrentTab() {
-    const activeTab = localStorage.getItem('qgenda_active_tab') || 'my-schedule';
-
-    switch (activeTab) {
-        case 'my-schedule':
-            renderMySchedule(parseInt(document.getElementById('schedule-days').value));
-            break;
-        case 'weekend-swap':
-            // Re-populate the weekend dropdown
-            populateWeekendDropdown();
-            document.getElementById('weekend-results').innerHTML = '';
-            document.getElementById('my-weekend-info').innerHTML = '';
-            break;
-        case 'holiday-swap':
-            populateHolidayDropdown();
-            document.getElementById('holiday-results').innerHTML = '';
-            document.getElementById('my-holiday-info').innerHTML = '';
-            document.getElementById('holiday-message').value = '';
-            break;
-        case 'trip-planner':
-            syncRotationOverridesUI();
-            break;
-        case 'golden-weekends':
-            document.getElementById('golden-results').innerHTML = '';
-            break;
-        case 'friends-list':
-            renderFriendsList();
-            break;
-        case 'swap-ledger':
-            renderLedger();
-            break;
-        // Other tabs will refresh when user interacts
-    }
+    // Clear results in every tab so switching users cannot show another user's results.
+    ['lastWeekendSearch', 'currentWeekendSwaps', 'selectedSwapCandidate', 'myWeekend',
+     'myWeekendStr', 'currentHolidaySwapResult', 'currentHolidaySwaps'].forEach(key => {
+        delete window[key];
+    });
+    ['golden-results', 'weekend-results', 'my-weekend-info', 'holiday-results',
+     'my-holiday-info', 'trip-eligibility', 'trip-shifts', 'trip-packages',
+     'trip-candidates', 'trip-swaps', 'free-results'].forEach(id => {
+        document.getElementById(id).replaceChildren();
+    });
+    ['swap-message', 'holiday-message'].forEach(id => document.getElementById(id).value = '');
+    renderMySchedule(parseInt(document.getElementById('schedule-days').value));
+    populateWeekendDropdown();
+    populateHolidayDropdown();
+    syncRotationOverridesUI();
+    renderFriendsList();
+    renderLedger();
 }
 
 /**
@@ -580,10 +573,36 @@ function initTabs() {
         });
     });
 
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    tabs.forEach((btn, index) => {
+        btn.id = `tab-${btn.dataset.tab}`;
+        btn.setAttribute('aria-controls', btn.dataset.tab);
+        const panel = document.getElementById(btn.dataset.tab);
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', btn.id);
+        btn.addEventListener('keydown', event => {
+            let next;
+            if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+            if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+            if (event.key === 'Home') next = 0;
+            if (event.key === 'End') next = tabs.length - 1;
+            if (next === undefined) return;
+            event.preventDefault();
+            switchTab(tabs[next].dataset.tab);
+            tabs[next].focus();
+        });
+    });
     switchTab(activeTab);
 }
 
 function switchTab(tabId) {
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    if (!tabs.some(btn => btn.dataset.tab === tabId)) tabId = 'my-schedule';
+    tabs.forEach(btn => {
+        const selected = btn.dataset.tab === tabId;
+        btn.setAttribute('aria-selected', String(selected));
+        btn.tabIndex = selected ? 0 : -1;
+    });
     // Hide all tab content
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
@@ -1042,6 +1061,7 @@ function renderMySchedule(daysAhead) {
     showLoading('upcoming-shifts');
 
     if (!MY_NAME) {
+        document.getElementById('schedule-coverage').replaceChildren();
         document.getElementById('next-call-date').textContent = '-';
         document.getElementById('total-calls').textContent = '-';
         document.getElementById('day-shifts').textContent = '-';
@@ -1053,18 +1073,23 @@ function renderMySchedule(daysAhead) {
 
     const summary = getScheduleSummary(SCHEDULE, MY_NAME, daysAhead);
     const stats = summary.stats;
+    document.getElementById('schedule-coverage').innerHTML = buildCoverageWarningHtml(
+        summary.coverage_warning ? [summary.coverage_warning] : [],
+        `${stats.unknown_days} day${stats.unknown_days === 1 ? '' : 's'} outside your schedule. Totals only include known dates; missing dates are not days off.`
+    );
 
     // Render metrics
     const nextCallStr = stats.next_call ?
-        `${formatDateDisplay(stats.next_call.date)} - ${stats.next_call.shift}` : 'None scheduled';
+        `${formatDateDisplay(stats.next_call.date)} - ${stats.next_call.shift}` : (stats.unknown_days ? 'Unknown beyond export' : 'None in this range');
     document.getElementById('next-call-date').textContent = nextCallStr;
     document.getElementById('total-calls').textContent = stats.total_calls;
     document.getElementById('day-shifts').textContent = stats.total_day_shifts;
-    document.getElementById('days-off').textContent = stats.days_off;
+    document.getElementById('days-off').textContent = stats.unknown_days === daysAhead ? 'Unknown' : stats.days_off;
 
     // Render upcoming shifts
     const shiftsHtml = summary.upcoming_shifts.map(shift => {
-        const icon = shift.shift_type === 'call' ? '🌙' :
+        const icon = NIGHT_CALL_SHIFTS.has(shift.shift) ? '🌙' :
+                     shift.shift_type === 'call' ? '📞' :
                      shift.shift_type === 'off' ? '🏖️' : '☀️';
         const dateStr = formatDateDisplay(shift.date);
         const tags = (shift.tags && shift.tags.length > 0)
@@ -1081,7 +1106,7 @@ function renderMySchedule(daysAhead) {
     }).join('');
 
     document.getElementById('upcoming-shifts').innerHTML = `
-        <table>
+        <div class="table-scroll"><table>
             <thead>
                 <tr>
                     <th>Date</th>
@@ -1090,8 +1115,8 @@ function renderMySchedule(daysAhead) {
                     <th>Notes</th>
                 </tr>
             </thead>
-            <tbody>${shiftsHtml || '<tr><td colspan="4">No upcoming shifts</td></tr>'}</tbody>
-        </table>
+            <tbody>${shiftsHtml || '<tr><td colspan="4">No upcoming shifts in available data</td></tr>'}</tbody>
+        </table></div>
     `;
 
     // Render weekly breakdown
@@ -1125,6 +1150,10 @@ function initGoldenWeekendsTab() {
 }
 
 function renderGoldenWeekends(weeksAhead, showAvailable) {
+    if (!MY_NAME) {
+        document.getElementById('golden-results').innerHTML = '<p class="no-data">Select your name above to find golden weekends.</p>';
+        return;
+    }
     showLoading('golden-results');
 
     const weekends = findGoldenWeekends(SCHEDULE, MY_NAME, weeksAhead);
@@ -1216,12 +1245,14 @@ function initTripPlannerTab() {
         }
     }
 
-    // Auto-set trip end to 2 days after trip start
+    // Keep a chosen return date unless it is now before departure.
     if (tripStartInput && tripEndInput) {
         tripStartInput.addEventListener('change', () => {
             if (!tripStartInput.value) return;
             const start = parseDate(tripStartInput.value);
-            tripEndInput.value = formatDate(addDays(start, 2));
+            if (!tripEndInput.value || tripEndInput.value < tripStartInput.value) {
+                tripEndInput.value = formatDate(addDays(start, 2));
+            }
         });
     }
 
@@ -1231,11 +1262,6 @@ function initTripPlannerTab() {
         const departEvening = document.getElementById('trip-depart-evening').checked;
         const friendsOnly = document.getElementById('trip-friends-only').checked;
         const showCRNA = document.getElementById('trip-show-crna').checked;
-
-        if (!startDate || !endDate) {
-            alert('Please select both start and end dates');
-            return;
-        }
 
         renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA);
     });
@@ -1284,9 +1310,6 @@ function findCoverageCandidates(schedule, myName, dates) {
     const allResidents = new Set(relevantSchedule.map(s => s.name));
     allResidents.delete(myName);
 
-    // Unavailable shift types - include day shifts since they're working
-    const unavailableShifts = new Set([...CALL_SHIFTS, ...UNAVAILABLE_SHIFTS, ...ICU_SHIFTS, ...DAY_SHIFTS]);
-
     const candidates = [];
     const coverageWarnings = {};
 
@@ -1295,7 +1318,7 @@ function findCoverageCandidates(schedule, myName, dates) {
 
         for (const dateStr of dates) {
             const dateObj = parseDate(dateStr);
-            const coverage = getScheduleCoverageInfo(schedule, resident, dateObj);
+            const coverage = getScheduleCoverageInfo(schedule, resident, addDays(dateObj, -1), dateObj);
             if (!coverage.hasCoverage) {
                 coverageWarnings[resident] = coverageWarnings[resident] || coverage;
                 continue;
@@ -1303,10 +1326,8 @@ function findCoverageCandidates(schedule, myName, dates) {
 
             // Check all their shifts (not just CA shifts) to determine availability
             const theirShifts = getShiftsOnDate(schedule, resident, dateObj);
-            const shiftTypes = new Set(theirShifts.map(s => s.shift));
-
-            // They're free if they have no shifts or only non-blocking shifts
-            const isFree = shiftTypes.size === 0 || !setsIntersect(shiftTypes, unavailableShifts);
+            // Any actual assignment blocks coverage, including CRNA/fellow work.
+            const isFree = theirShifts.length === 0;
 
             // Also check day before for night call conflicts
             const dayBefore = addDays(dateObj, -1);
@@ -1315,9 +1336,10 @@ function findCoverageCandidates(schedule, myName, dates) {
 
             // Check if they are eligible to cover my shift on that date
             const myShiftsOnDate = getShiftsOnDate(schedule, myName, dateObj);
-            const POST_CALL_SHIFTS = new Set(['CA Post Call', 'CA Home Post Call']);
-            const myBlockingShift = myShiftsOnDate.find(s => !POST_CALL_SHIFTS.has(s.shift));
-            const canCover = myBlockingShift ? canCoverShift(resident, myBlockingShift.shift, dateObj) : true;
+            const myBlockingShifts = myShiftsOnDate.filter(s => CALL_SHIFTS.has(s.shift) || DAY_SHIFTS.has(s.shift) || ICU_SHIFTS.has(s.shift));
+            const canCover = myBlockingShifts.length > 0 && myBlockingShifts.every(s =>
+                !ICU_SHIFTS.has(s.shift) && canCoverShift(resident, s.shift, dateObj) &&
+                (!NIGHT_CALL_SHIFTS.has(s.shift) || !hasPostCallConflict(schedule, resident, dateObj)));
 
             if (isFree && !hasNightCallDayBefore && canCover) {
                 freeDates.push(dateStr);
@@ -1364,6 +1386,15 @@ function findCoverageCandidates(schedule, myName, dates) {
 }
 
 function renderTripPlanner(startDate, endDate, departEvening, friendsOnly, showCRNA) {
+    if (!MY_NAME || !startDate || !endDate || endDate < startDate) {
+        ['trip-eligibility', 'trip-packages', 'trip-candidates', 'trip-swaps'].forEach(id => {
+            document.getElementById(id).replaceChildren();
+        });
+        document.getElementById('trip-shifts').innerHTML = `<p class="no-data" role="alert">${
+            !MY_NAME ? 'Select your name above before planning a trip.' :
+            'Choose an end date on or after the start date.'}</p>`;
+        return;
+    }
     showLoading('trip-shifts');
 
     const showHidden = document.getElementById('trip-show-hidden')?.checked || false;
@@ -2182,16 +2213,14 @@ function renderWhosFree(date, friendsOnly, showCRNA) {
     showLoading('free-results');
     const targetDate = parseDate(date);
 
-    // Get all shifts on this date that make someone unavailable
-    const busyShifts = SCHEDULE.filter(s => {
-        if (s.date !== date) return false;
-        // Call, day, ICU, or unavailable shifts mean they're not free
-        return CALL_SHIFTS.has(s.shift) ||
-               DAY_SHIFTS.has(s.shift) ||
-               ICU_SHIFTS.has(s.shift) ||
-               UNAVAILABLE_SHIFTS.has(s.shift);
+    // Any actual assignment blocks availability, including unrecognized labels.
+    // Overnight work also blocks the following morning even without a post-call marker.
+    const busyNames = new Set();
+    const previousDate = formatDate(addDays(targetDate, -1));
+    SCHEDULE.forEach(s => {
+        if ((s.date === previousDate && NIGHT_CALL_SHIFTS.has(s.shift)) ||
+            (s.date === date && s.shift && !INFO_ONLY_SHIFTS.has(s.shift))) busyNames.add(s.name);
     });
-    const busyNames = new Set(busyShifts.map(s => s.name));
 
     let allPeople = getAllResidents();
     if (friendsOnly) {
@@ -2212,7 +2241,7 @@ function renderWhosFree(date, friendsOnly, showCRNA) {
     const freeResidents = allPeople.filter(name => {
         if (busyNames.has(name)) return false;
 
-        const coverage = getScheduleCoverageInfo(SCHEDULE, name, targetDate);
+        const coverage = getScheduleCoverageInfo(SCHEDULE, name, addDays(targetDate, -1), targetDate);
         if (!coverage.hasCoverage) {
             freeCoverageWarnings.push(coverage);
             return false;

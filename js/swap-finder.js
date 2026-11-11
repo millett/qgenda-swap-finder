@@ -137,6 +137,7 @@ const UNAVAILABLE_SHIFTS = new Set([
   'CA Sick',
   'CA Post Call',
   'CA Home Post Call',
+  'CA ICU Off',
   'CA Excused',
   'CA Interview',
   'CA Meeting',
@@ -162,6 +163,7 @@ const INFO_ONLY_SHIFTS = new Set([
 const HOLIDAY_LOOKUP_CACHE = new Map();
 
 const SCHEDULE_RANGE_CACHE = new WeakMap();
+const SCHEDULE_INDEX_CACHE = new WeakMap();
 const FELLOW_SPECIALTY_CACHE = new Map();
 
 const FELLOW_CARDIAC_COVERAGE_SHIFTS = new Set([
@@ -483,12 +485,20 @@ function isSameDay(date1, date2) {
  * @returns {Array} Array of shift objects
  */
 function getShiftsOnDate(schedule, name, date) {
-  const dateStr = formatDate(date);
-  return schedule.filter(s =>
-    s.name === name &&
-    s.date === dateStr &&
-    !INFO_ONLY_SHIFTS.has(s.shift)
-  );
+  // Export arrays are immutable for the lifetime of a page, like the range cache.
+  let index = SCHEDULE_INDEX_CACHE.get(schedule);
+  if (!index) {
+    index = new Map();
+    for (const entry of schedule) {
+      if (INFO_ONLY_SHIFTS.has(entry.shift)) continue;
+      if (!index.has(entry.name)) index.set(entry.name, new Map());
+      const byDate = index.get(entry.name);
+      if (!byDate.has(entry.date)) byDate.set(entry.date, []);
+      byDate.get(entry.date).push(entry);
+    }
+    SCHEDULE_INDEX_CACHE.set(schedule, index);
+  }
+  return [...(index.get(name)?.get(formatDate(date)) || [])];
 }
 
 function getScheduleRanges(schedule) {
@@ -598,6 +608,7 @@ function hasPostCallConflict(schedule, name, nightCallDate) {
   const okPostCall = new Set([
     'CA Post Call',
     'CA Home Post Call',
+    'CA ICU Off',
     'CA Vacation',
     'CA Vacation Week',
     'CA Holiday',
@@ -1343,9 +1354,16 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
   }
 
   const results = [];
+  const offCompatible = new Set(['CA Vacation', 'CA Vacation Week', 'CA Holiday', 'CA Excused', 'CA ICU Off']);
+  const isRestedWeekend = (name, saturday, sunday) => {
+    const friday = addDays(saturday, -1);
+    if (getShiftsOnDate(schedule, name, friday).some(s => NIGHT_CALL_SHIFTS.has(s.shift))) return false;
+    return [...getShiftsOnDate(schedule, name, saturday), ...getShiftsOnDate(schedule, name, sunday)]
+      .every(s => offCompatible.has(s.shift));
+  };
 
   for (const { saturday, sunday } of weekends) {
-    const myCoverage = getScheduleCoverageInfo(caSchedule, myName, saturday, sunday);
+    const myCoverage = getScheduleCoverageInfo(schedule, myName, addDays(saturday, -1), sunday);
     if (!myCoverage.hasCoverage) {
       results.push({
         weekend: `Sat ${formatDateDisplay(saturday).split(' ')[1]} - Sun ${formatDateDisplay(sunday).split(' ')[1]}`,
@@ -1362,22 +1380,7 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
       continue;
     }
 
-    // Check if I'm off
-    const myShifts = [...getShiftsOnDate(caSchedule, myName, saturday),
-                      ...getShiftsOnDate(caSchedule, myName, sunday)];
-    const myShiftTypes = new Set(myShifts.map(s => s.shift));
-
-    // I'm "off" if I have no shifts OR only vacation/excused type shifts
-    const offCompatible = new Set([
-      'CA Vacation',
-      'CA Vacation Week',
-      'CA Holiday',
-      'CA FMLA',
-      'CA Post Call',
-      'CA Home Post Call',
-      'CA Excused'
-    ]);
-    const iAmOff = myShiftTypes.size === 0 || [...myShiftTypes].every(s => offCompatible.has(s));
+    const iAmOff = isRestedWeekend(myName, saturday, sunday);
 
     // Check which residents are off
     const friendsOff = [];
@@ -1388,19 +1391,13 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
     allResidents.delete(myName);
 
     for (const resident of allResidents) {
-      const residentCoverage = getScheduleCoverageInfo(caSchedule, resident, saturday, sunday);
+      const residentCoverage = getScheduleCoverageInfo(schedule, resident, addDays(saturday, -1), sunday);
       if (!residentCoverage.hasCoverage) {
         unknownCoveragePeople.push(residentCoverage);
         continue;
       }
 
-      const theirShifts = [...getShiftsOnDate(caSchedule, resident, saturday),
-                           ...getShiftsOnDate(caSchedule, resident, sunday)];
-      const theirShiftTypes = new Set(theirShifts.map(s => s.shift));
-
-      // They're "off" if no work/call shifts
-      const busyShifts = new Set([...CALL_SHIFTS, ...DAY_SHIFTS]);
-      const isOff = !setsIntersect(theirShiftTypes, busyShifts);
+      const isOff = isRestedWeekend(resident, saturday, sunday);
 
       if (isOff) {
         residentsOffList.push(resident);
@@ -1439,23 +1436,25 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
  * @returns {Object} Object with upcoming_shifts, stats, and weekly_breakdown
  */
 function getScheduleSummary(schedule, myName, daysAhead = 30) {
-  const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
+  const assignments = schedule.filter(s => s.shift && !INFO_ONLY_SHIFTS.has(s.shift));
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const endDate = addDays(today, daysAhead);
+  const endDate = addDays(today, Math.max(1, daysAhead) - 1);
+  const coverage = getScheduleCoverageInfo(schedule, myName, today, endDate);
 
   // Pre-calculate call-adjacent dates for pre/post-call notes
-  const myCallShifts = caSchedule.filter(s => s.name === myName && CALL_SHIFTS.has(s.shift));
+  const myCallShifts = assignments.filter(s => s.name === myName && CALL_SHIFTS.has(s.shift));
   const callDates = new Set(myCallShifts.map(s => s.date));
   const preCallDates = new Set([...callDates].map(d => formatDate(addDays(parseDate(d), -1))));
-  const postCallDates = new Set([...callDates].map(d => formatDate(addDays(parseDate(d), 1))));
+  const postCallDates = new Set(myCallShifts.filter(s => NIGHT_CALL_SHIFTS.has(s.shift))
+    .map(s => formatDate(addDays(parseDate(s.date), 1))));
 
   // Get my shifts in range
   const myShifts = [];
   let current = today;
   while (current <= endDate) {
-    const shiftsOnDay = getShiftsOnDate(caSchedule, myName, current);
+    const shiftsOnDay = getShiftsOnDate(assignments, myName, current);
     shiftsOnDay.forEach(s => {
       const dateObj = parseDate(s.date);
       const dateKey = formatDate(dateObj);
@@ -1466,7 +1465,7 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
         date: dateObj,
         shift: s.shift,
         shift_type: classifyShift(s.shift),
-        days_until: Math.floor((dateObj - today) / (1000 * 60 * 60 * 24)),
+        days_until: Math.round((dateObj - today) / (1000 * 60 * 60 * 24)),
         tags: tags
       });
     });
@@ -1482,8 +1481,14 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
 
   // Count days off
   let daysOff = 0;
+  let unknownDays = 0;
   current = today;
   while (current <= endDate) {
+    if (!getScheduleCoverageInfo(schedule, myName, current).hasCoverage) {
+      unknownDays++;
+      current = addDays(current, 1);
+      continue;
+    }
     const dayShifts = myShifts.filter(s => isSameDay(s.date, current));
     if (dayShifts.length === 0) {
       daysOff++;
@@ -1511,7 +1516,7 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
   // Weekly breakdown
   const weeklyData = [];
   let currentWeek = new Date(today);
-  currentWeek.setDate(currentWeek.getDate() - currentWeek.getDay() + 1); // Start of week (Monday)
+  currentWeek.setDate(currentWeek.getDate() - (currentWeek.getDay() + 6) % 7); // Start of week (Monday)
 
   while (currentWeek <= endDate) {
     const weekEnd = addDays(currentWeek, 6);
@@ -1526,7 +1531,8 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
     const weekEndCheck = new Date(Math.min(weekEnd, endDate));
     while (checkDate <= weekEndCheck) {
       const dayShiftsOnDate = weekShifts.filter(s => isSameDay(s.date, checkDate));
-      if (dayShiftsOnDate.length === 0 || dayShiftsOnDate.every(s => s.shift_type === 'off')) {
+      if (getScheduleCoverageInfo(schedule, myName, checkDate).hasCoverage &&
+          (dayShiftsOnDate.length === 0 || dayShiftsOnDate.every(s => s.shift_type === 'off'))) {
         weekOff++;
       }
       checkDate = addDays(checkDate, 1);
@@ -1543,11 +1549,13 @@ function getScheduleSummary(schedule, myName, daysAhead = 30) {
   }
 
   return {
+    coverage_warning: coverage.hasCoverage ? null : coverage,
     upcoming_shifts: myShifts,
     stats: {
       total_calls: totalCalls,
       total_day_shifts: totalDayShifts,
       days_off: daysOff,
+      unknown_days: unknownDays,
       next_call: nextCall,
       next_golden_weekend: nextGoldenWeekend,
     },
