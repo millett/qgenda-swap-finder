@@ -88,18 +88,18 @@ button .beta-badge {
   display: block;
 }
 
-nav[role="tablist"] ul {
+nav [role="tablist"] {
   display: flex;
   gap: 0.5rem;
   overflow-x: auto;
   padding-bottom: 0.5rem;
 }
 
-nav[role="tablist"] button {
+nav [role="tablist"] button {
   white-space: nowrap;
 }
 
-nav[role="tablist"] button.active {
+nav [role="tablist"] button.active {
   background-color: var(--pico-primary);
   color: var(--pico-primary-inverse);
 }
@@ -1010,3 +1010,8 @@ table th {
   background: rgba(220, 53, 69, 0.3);
   color: #f5a6ad;
 }
+
+/* Keep wide schedules and navigation within narrow screens. */
+nav [role="tablist"] { max-width: 100%; flex-wrap: nowrap; }
+.table-scroll { overflow-x: auto; }
+.table-scroll table { min-width: 32rem; }
