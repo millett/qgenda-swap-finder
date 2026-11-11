@@ -44,3 +44,15 @@ convert-schedule.py - Excel to JS converter
 Residents are classified by QGenda row colors:
 - **CA-1** (Purple), **CA-2** (Blue), **CA-3** (Light blue)
 - **Fellow** (Orange), **CRNA** (Yellow), **Faculty** (Grey)
+
+
+## Checks
+
+Run `npm test` for deterministic schedule-logic and UI-function regression tests (Node.js; no browser required).
+Run `npm run ui-smoke` for Playwright browser checks after installing development dependencies and Playwright Chromium. The UI fixtures use a fixed date inside the bundled schedule so they remain reproducible as time passes.
+An existing Chrome installation can be selected with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/absolute/path/to/chrome`.
+
+
+The current export covers November 9, 2026 through June 30, 2027. The converter uses the export's staff directory to preserve full names, retains unprefixed assignments for identified staff, and rejects empty imports without replacing existing data. It ignores schedule notes and contact-directory rows.
+
+The converter requires `pandas` and `openpyxl`. With those installed, run `python3 -m unittest discover -s tests -p 'test_converter.py'` for import checks. Browser-free JavaScript checks also exercise the search engines against the bundled export.

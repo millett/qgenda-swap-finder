@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>QGenda Swap Finder</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20260716a">
+  <link rel="stylesheet" href="css/style.css?v=20261110b">
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-H0KC1JJ7PC"></script>
   <script>
@@ -74,6 +74,8 @@
         <button id="btn-refresh-schedule">Refresh</button>
       </div>
 
+      <div id="schedule-coverage" aria-live="polite"></div>
+
       <!-- Metrics -->
       <div id="schedule-metrics" class="grid">
         <article class="metric-card">
@@ -110,7 +112,7 @@
     <!-- Golden Weekends Tab -->
     <section id="golden-weekends" class="tab-content">
       <h2>Golden Weekends</h2>
-      <p>Find weekends where you have both Saturday AND Sunday off.</p>
+      <p>Find weekends with both days off, excluding Friday overnight call and post-call recovery days.</p>
 
       <div class="grid">
         <label>Weeks ahead: <span id="golden-weeks-value">12</span>
@@ -297,8 +299,8 @@
     </footer>
   </main>
 
-  <script src="js/schedule.js?v=20260716a"></script>
-  <script src="js/swap-finder.js?v=20260716a"></script>
-  <script src="js/app.js?v=20260716a"></script>
+  <script src="js/schedule.js?v=20261110b"></script>
+  <script src="js/swap-finder.js?v=20261110b"></script>
+  <script src="js/app.js?v=20261110b"></script>
 </body>
 </html>
