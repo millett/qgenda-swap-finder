@@ -1328,7 +1328,7 @@ function findTripCoverage(schedule, myName, tripStart, tripEnd, departDayBefore 
  * @param {number} lookForwardWeeks - How many weeks to look forward
  * @returns {Array} Array of golden weekends
  */
-function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
+function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12, candidateNames = null) {
   const caSchedule = schedule.filter(s => s.shift && s.shift.startsWith('CA '));
   const friends = getFriends();
   const friendsSet = new Set(friends.friends || []);
@@ -1387,7 +1387,7 @@ function findGoldenWeekends(schedule, myName, lookForwardWeeks = 12) {
     const residentsOffList = [];
     const unknownCoveragePeople = [];
 
-    const allResidents = new Set(caSchedule.map(s => s.name));
+    const allResidents = new Set(candidateNames ?? caSchedule.map(s => s.name));
     allResidents.delete(myName);
 
     for (const resident of allResidents) {

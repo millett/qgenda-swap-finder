@@ -160,3 +160,63 @@ test('calendar groups assignments, aligns Mondays, and retains notes in the list
   assert.match(html, /<table>/);
   assert.match(html, /Post-call if worked past 11 p.m./);
 });
+
+test('golden weekends prioritize friends and apply CRNA opt-in to every result and count', () => {
+  const { context, getElementById: el } = load();
+  const roles = {
+    Me:'ca3', 'Friend, Riley':'ca2', 'Other, Chris':'ca1', 'Nurse, Sam':'crna',
+    'Nurse, Pat':'crna', 'Nurse, Unknown':'crna', 'Missing, Friend':'ca2', 'Busy, Friend':'ca3', 'Faculty, Person':'faculty'
+  };
+  context.getPersonType = name => roles[name];
+  context.SCHEDULE = Object.keys(roles).flatMap(name => [
+    {name, date:'2026-11-09', shift: name === 'Nurse, Sam' ? 'CRNA 7-7' : 'CA GOR'},
+    {name, date: name.includes('Unknown') || name === 'Missing, Friend' ? '2026-11-11' : '2026-11-23', shift: name === 'Nurse, Sam' ? 'CRNA 7-7' : 'CA GOR'}
+  ]);
+  context.SCHEDULE.push({name:'Busy, Friend',date:'2026-11-14',shift:'CA Senior Day Call'});
+  context.getFriends = () => ({friends:['Friend, Riley','Nurse, Sam','Missing, Friend','Busy, Friend']});
+  vm.runInContext("MY_NAME = 'Me'", context);
+  el('golden-weeks').value = '1';
+  context.renderGoldenWeekends(1, false, false);
+  let html = el('golden-results').innerHTML;
+  assert.match(html, /Friends off:<\/strong> Friend, Riley/);
+  assert.match(html, /1 friend off/);
+  assert.match(html, /Friends with incomplete schedule data: Missing, Friend/);
+  assert.doesNotMatch(html, /Other, Chris|Nurse,|Faculty,|Busy, Friend/);
+  context.renderGoldenWeekends(1, true, false);
+  html = el('golden-results').innerHTML;
+  assert.match(html, /1 friend off · 2 total/);
+  assert.match(html, /Others off \(1\)/);
+  assert.match(html, /Other, Chris/);
+  assert.doesNotMatch(html, /Nurse,|Faculty,/);
+  context.renderGoldenWeekends(1, true, true);
+  html = el('golden-results').innerHTML;
+  assert.match(html, /2 friends off · 4 total/);
+  assert.match(html, /Friends off:<\/strong> Friend, Riley; Nurse, Sam \(CRNA\)/);
+  assert.match(html, /Nurse, Pat \(CRNA\)/);
+  assert.match(html, /1 other person not counted/);
+  context.populateUserSelector = () => {};
+  context.setGoldenCRNAFilter(true);
+  assert.equal(el('selector-show-crna').checked, true);
+  assert.equal(el('golden-show-crna').checked, true);
+  context.setGoldenCRNAFilter(false);
+  assert.equal(el('selector-show-crna').checked, false);
+  assert.doesNotMatch(el('golden-results').innerHTML, /Nurse,/);
+});
+
+test('golden weekends recognize unambiguous legacy friend names and refresh saved-friend changes', () => {
+  const { context, getElementById: el } = load();
+  context.getPersonType = () => 'ca3';
+  context.SCHEDULE = ['Me', 'Kubiak, Rachel', 'Other, Chris'].flatMap(name => [
+    {name,date:'2026-11-09',shift:'CA GOR'}, {name,date:'2026-11-23',shift:'CA GOR'}
+  ]);
+  let friends = ['Kubiak (1)'];
+  context.getFriends = () => ({friends});
+  vm.runInContext("MY_NAME = 'Me'", context);
+  el('golden-weeks').value = '1';
+  context.renderGoldenWeekends(1, false, false);
+  assert.match(el('golden-results').innerHTML, /Friends off:<\/strong> Kubiak, Rachel/);
+  friends = ['Other, Chris'];
+  context.saveFriends({friends});
+  assert.match(el('golden-results').innerHTML, /Friends off:<\/strong> Other, Chris/);
+  assert.doesNotMatch(el('golden-results').innerHTML, /Kubiak/);
+});

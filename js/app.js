@@ -293,9 +293,7 @@ function initUserSelector() {
 
     // Listen for checkbox changes to repopulate dropdown
     showCRNACheckbox.addEventListener('change', () => {
-        const previousName = MY_NAME;
-        populateUserSelector();
-        if (MY_NAME !== previousName) refreshCurrentTab();
+        setGoldenCRNAFilter(showCRNACheckbox.checked);
     });
 
     select.addEventListener('change', (e) => {
@@ -544,6 +542,7 @@ function getFriends() {
 
 function saveFriends(data) {
     localStorage.setItem(getUserKey('qgenda_friends'), JSON.stringify(data));
+    if (document.getElementById('golden-results').innerHTML.trim()) refreshGoldenWeekends();
 }
 
 function getLedger() {
@@ -622,6 +621,8 @@ function switchTab(tabId) {
 
     // Save to localStorage
     localStorage.setItem('qgenda_active_tab', tabId);
+
+    if (tabId === 'golden-weekends') refreshGoldenWeekends();
 
     if (tabId === 'trip-planner') {
         syncRotationOverridesUI();
@@ -1168,31 +1169,48 @@ function renderMySchedule(daysAhead) {
 }
 
 // Tab 2: Golden Weekends
+function refreshGoldenWeekends() {
+    renderGoldenWeekends(
+        parseInt(document.getElementById('golden-weeks').value, 10),
+        document.getElementById('golden-show-available').checked,
+        document.getElementById('selector-show-crna').checked
+    );
+}
+
+// Mirror the header control here so the inclusion rule is visible beside results.
+function setGoldenCRNAFilter(showCRNA) {
+    document.getElementById('selector-show-crna').checked = showCRNA;
+    document.getElementById('golden-show-crna').checked = showCRNA;
+    const previousName = MY_NAME;
+    populateUserSelector();
+    if (MY_NAME !== previousName) refreshCurrentTab();
+    refreshGoldenWeekends();
+}
+
 function initGoldenWeekendsTab() {
     const weeksSlider = document.getElementById('golden-weeks');
     const weeksValue = document.getElementById('golden-weeks-value');
-    const searchBtn = document.getElementById('btn-golden-search');
-
     weeksSlider.addEventListener('input', (e) => {
         weeksValue.textContent = e.target.value;
+        refreshGoldenWeekends();
     });
-
-    searchBtn.addEventListener('click', () => {
-        const weeks = parseInt(weeksSlider.value);
-        const showAvailable = document.getElementById('golden-show-available').checked;
-
-        renderGoldenWeekends(weeks, showAvailable);
-    });
+    document.getElementById('golden-show-available').addEventListener('change', refreshGoldenWeekends);
+    const crnaCheckbox = document.getElementById('golden-show-crna');
+    crnaCheckbox.checked = document.getElementById('selector-show-crna').checked;
+    crnaCheckbox.addEventListener('change', () => setGoldenCRNAFilter(crnaCheckbox.checked));
+    document.getElementById('btn-golden-search').addEventListener('click', refreshGoldenWeekends);
 }
 
-function renderGoldenWeekends(weeksAhead, showAvailable) {
+function renderGoldenWeekends(weeksAhead, showAvailable, showCRNA = !!document.getElementById('selector-show-crna')?.checked) {
     if (!MY_NAME) {
         document.getElementById('golden-results').innerHTML = '<p class="no-data">Select your name above to find golden weekends.</p>';
         return;
     }
     showLoading('golden-results');
 
-    const weekends = findGoldenWeekends(SCHEDULE, MY_NAME, weeksAhead);
+    // Filter before evaluating availability so names, counts, and coverage warnings agree.
+    const candidateNames = getAllResidentNames(showCRNA);
+    const weekends = findGoldenWeekends(SCHEDULE, MY_NAME, weeksAhead, candidateNames);
     const selfCoverageWarnings = weekends
         .map(weekend => weekend.self_coverage_warning)
         .filter(Boolean);
@@ -1211,38 +1229,33 @@ function renderGoldenWeekends(weeksAhead, showAvailable) {
     }
 
     const friendsData = getFriends();
-    const friendsSet = new Set(friendsData.friends || []);
+    const friendsSet = new Set(remapStoredNameList(friendsData.friends || [], getAllResidentNames(true)));
+    const allowedPeople = new Set(candidateNames);
 
-    const html = myGoldenWeekends.map((weekend, idx) => {
-        // Determine who to show as available
-        let availablePeople = weekend.all_residents_off || [];
-
+    const html = myGoldenWeekends.map(weekend => {
+        const availablePeople = (weekend.all_residents_off || []).filter(name => allowedPeople.has(name));
         const friendsAvailable = availablePeople.filter(name => friendsSet.has(name));
         const othersAvailable = availablePeople.filter(name => !friendsSet.has(name));
+        const unknownPeople = (weekend.unknown_coverage_people || []).filter(w => allowedPeople.has(w.name));
+        const unknownFriends = unknownPeople.filter(w => friendsSet.has(w.name));
+        const personLabel = name => `${scheduleEscape(name)}${getPersonType(name) === 'crna' ? ' (CRNA)' : ''}`;
+        const emoji = friendsAvailable.length >= 3 ? '🌟' : friendsAvailable.length >= 1 ? '✨' : '🏖️';
 
-        const emoji = friendsAvailable.length >= 3 ? '🌟' :
-                      friendsAvailable.length >= 1 ? '✨' : '🏖️';
-
-        let availableHtml = '';
+        let availableHtml = friendsAvailable.length
+            ? `<p class="golden-friends"><strong>Friends off:</strong> ${friendsAvailable.map(personLabel).join('; ')}</p>`
+            : `<p class="muted">${friendsSet.size ? 'No saved friends confirmed off this weekend with these filters.' : 'Add people in the Friends tab to see your friends here.'}</p>`;
+        if (unknownFriends.length) {
+            availableHtml += `<p class="muted">Friends with incomplete schedule data: ${unknownFriends.map(w => personLabel(w.name)).join('; ')}. Availability is unknown.</p>`;
+        }
         if (showAvailable) {
-            if (friendsAvailable.length > 0) {
-                const friendsLabel = friendsAvailable.map(formatLastName).join(', ');
-                availableHtml += `<p><strong>Friends off:</strong> ${friendsLabel}</p>`;
+            if (othersAvailable.length) {
+                availableHtml += `<details class="golden-others"><summary>Others off (${othersAvailable.length})</summary><p>${othersAvailable.map(personLabel).join('; ')}</p></details>`;
+            } else {
+                availableHtml += '<p class="muted">No other people confirmed off with these filters.</p>';
             }
-            if (othersAvailable.length > 0) {
-                const othersLabel = othersAvailable.slice(0, 10).map(formatLastName).join(', ');
-                availableHtml += `<p><small>Others off: ${othersLabel}${othersAvailable.length > 10 ? '...' : ''}</small></p>`;
-            }
-            if (availablePeople.length === 0) {
-                availableHtml = '<p class="muted">No one else is off this weekend</p>';
-            }
-            if ((weekend.unknown_coverage_people || []).length > 0) {
-                const hiddenNames = weekend.unknown_coverage_people
-                    .slice(0, 3)
-                    .map(warning => formatLastName(warning.name))
-                    .join(', ');
-                const hiddenCount = weekend.unknown_coverage_people.length;
-                availableHtml += `<p class="muted">${hiddenCount} ${hiddenCount === 1 ? 'person was' : 'people were'} not counted because their schedule does not extend through this weekend${hiddenNames ? `: ${hiddenNames}${hiddenCount > 3 ? '...' : ''}` : ''}.</p>`;
+            const unknownOthers = unknownPeople.filter(w => !friendsSet.has(w.name));
+            if (unknownOthers.length) {
+                availableHtml += `<p class="muted">${unknownOthers.length} other ${unknownOthers.length === 1 ? 'person' : 'people'} not counted because their schedule does not extend through this weekend.</p>`;
             }
         }
 
@@ -1250,9 +1263,9 @@ function renderGoldenWeekends(weeksAhead, showAvailable) {
         <div class="golden-card">
             <div class="golden-header">
                 <span class="golden-date">${emoji} ${weekend.weekend}</span>
-                ${showAvailable ? `<span class="available-count">${availablePeople.length} available</span>` : ''}
+                <span class="available-count">${friendsAvailable.length} friend${friendsAvailable.length === 1 ? '' : 's'} off${showAvailable ? ` · ${availablePeople.length} total` : ''}</span>
             </div>
-            ${showAvailable ? `<div class="golden-body">${availableHtml}</div>` : ''}
+            <div class="golden-body">${availableHtml}</div>
         </div>
     `}).join('');
 
